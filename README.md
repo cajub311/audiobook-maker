@@ -17,6 +17,20 @@ python3 audiobook_creator_v7.py
 
 Then open: `http://localhost:7860`
 
+### Phone / Mobile Quick Start
+
+- Open the app and use **Easy Mobile Mode** tab.
+- Choose `Paste Text`, `URL`, or `File`.
+- Tap **Generate Audiobook Now** (one-button flow).
+- Play and download from the same screen.
+- Optional: enable free cloud memory backup to continue later on another device.
+
+If you want a temporary public link for your phone, run:
+
+```bash
+GRADIO_SHARE=1 python3 audiobook_creator_v7.py
+```
+
 ## What is implemented
 
 - Single-file V7 app (`audiobook_creator_v7.py`)
@@ -26,6 +40,7 @@ Then open: `http://localhost:7860`
 - Pronunciation override support
 - FFmpeg-based assembly, optional loudness normalization, M4B chapter metadata
 - Gradio tabs: Input, Voices, Generate, Player
+- Mobile-friendly Easy Mode with simplified one-tap generation path
 
 ## Reliability Improvements Included
 

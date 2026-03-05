@@ -7,6 +7,7 @@ module.exports = function handler(req, res) {
       "Install dependencies: pip install -r requirements.txt",
       "Start app: python3 audiobook_creator_v7.py",
       "Open http://localhost:7860 in your browser",
+      "Use Easy Mobile Mode tab for fastest setup",
       "Optional: use System tab for free cloud manifest backup/restore"
     ],
     note: "Use python on systems where python3 is not available."
