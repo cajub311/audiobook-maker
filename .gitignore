@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+
+# Runtime outputs
+manifests/
+tts_cache/
+temp/
+output/
+pronunciations/

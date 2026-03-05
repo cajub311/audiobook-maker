@@ -1,0 +1,10 @@
+gradio
+edge-tts
+pdfplumber
+ebooklib
+beautifulsoup4
+trafilatura
+pydub
+kokoro-onnx
+soundfile
+spacy

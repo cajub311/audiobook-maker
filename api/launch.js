@@ -5,9 +5,9 @@ module.exports = function handler(req, res) {
     purpose: "Launcher instructions for the Python Gradio app.",
     steps: [
       "Install dependencies: pip install -r requirements.txt",
-      "Start app: python app.py",
-      "Open the Gradio URL printed in your terminal"
+      "Start app: python3 audiobook_creator_v7.py",
+      "Open http://localhost:7860 in your browser"
     ],
-    note: "If your entrypoint script is not app.py, run your actual Gradio script instead."
+    note: "Use python on systems where python3 is not available."
   });
 };
