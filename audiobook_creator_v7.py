@@ -43,6 +43,10 @@ MANIFESTS_DIR = BASE_DIR / "manifests"
 PRONUNCIATIONS_DIR = BASE_DIR / "pronunciations"
 TEMP_DIR = BASE_DIR / "temp"
 OUTPUT_DIR = BASE_DIR / "output"
+BOOK_PROFILES_DIR = PRONUNCIATIONS_DIR / "book_profiles"
+SAVED_INPUTS_DIR = BASE_DIR / "saved_inputs"
+UI_DRAFT_PATH = BASE_DIR / "ui_draft.json"
+APP_STATE_PATH = BASE_DIR / "app_state.json"
 DEFAULT_FFMPEG_TIMEOUT_S = 240
 DEFAULT_FFMPEG_RETRIES = 2
 MAX_REMOTE_TEXT_BYTES = 2 * 1024 * 1024
@@ -56,7 +60,7 @@ PREVIEW_SAMPLE_TEXT = (
 
 
 def ensure_runtime_dirs() -> None:
-    for directory in (CACHE_DIR, MANIFESTS_DIR, PRONUNCIATIONS_DIR, TEMP_DIR, OUTPUT_DIR):
+    for directory in (CACHE_DIR, MANIFESTS_DIR, PRONUNCIATIONS_DIR, TEMP_DIR, OUTPUT_DIR, BOOK_PROFILES_DIR, SAVED_INPUTS_DIR):
         directory.mkdir(parents=True, exist_ok=True)
 
 
@@ -180,6 +184,111 @@ def file_sha256(path: str | Path) -> str:
                 break
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _load_json_dict(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def load_ui_draft() -> dict[str, Any]:
+    return _load_json_dict(UI_DRAFT_PATH)
+
+
+def save_ui_draft(draft: dict[str, Any]) -> None:
+    atomic_json_write(UI_DRAFT_PATH, draft, keep_backup=True)
+
+
+def load_app_state() -> dict[str, Any]:
+    return _load_json_dict(APP_STATE_PATH)
+
+
+def save_app_state(state: dict[str, Any]) -> None:
+    payload = dict(state)
+    payload["updated_at"] = now_iso()
+    atomic_json_write(APP_STATE_PATH, payload, keep_backup=True)
+
+
+def remember_last_project(project_id: str, manifest_path: str, cloud_url: str = "") -> None:
+    state = load_app_state()
+    state["last_project_id"] = project_id
+    state["last_manifest_path"] = manifest_path
+    state["last_cloud_url"] = cloud_url or ""
+    save_app_state(state)
+
+
+def existing_path_or_empty(path: str) -> str:
+    return path if path and Path(path).exists() else ""
+
+
+def copy_uploaded_input(file_obj: Any, slot: str) -> str:
+    src_path = getattr(file_obj, "name", None) if file_obj else None
+    if not src_path:
+        return ""
+    src = Path(src_path)
+    if not src.exists():
+        return ""
+    ext = src.suffix.lower() or ".txt"
+    target = SAVED_INPUTS_DIR / f"{slugify(slot, fallback='input')}_{uuid.uuid4().hex[:10]}{ext}"
+    shutil.copy2(src, target)
+    return str(target)
+
+
+def make_book_profile_key(book: dict[str, Any]) -> str:
+    title = str(book.get("title", "untitled") or "untitled")
+    author = str(book.get("author", "unknown") or "unknown")
+    source_type = str(book.get("source_type", "text") or "text")
+    return slugify(f"{title}_{author}_{source_type}", fallback="book_profile")
+
+
+def load_book_profile(book_key: str) -> dict[str, Any]:
+    profile_path = BOOK_PROFILES_DIR / f"{slugify(book_key)}.json"
+    return _load_json_dict(profile_path)
+
+
+def save_book_profile(
+    book_key: str,
+    character_voices: dict[str, Any],
+    pronunciation_overrides: dict[str, str],
+) -> None:
+    profile_path = BOOK_PROFILES_DIR / f"{slugify(book_key)}.json"
+    payload = {
+        "character_voices": character_voices or {},
+        "pronunciation_overrides": pronunciation_overrides or {},
+        "updated_at": now_iso(),
+    }
+    atomic_json_write(profile_path, payload, keep_backup=True)
+
+
+def pronunciation_overrides_to_rows(overrides: dict[str, str]) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for word, repl in sorted((overrides or {}).items(), key=lambda item: item[0].lower()):
+        rows.append([str(word), str(repl)])
+    return rows
+
+
+def choose_resume_project_id(
+    inventory: dict[str, dict[str, str]],
+    selected_project: Optional[str] = None,
+) -> Optional[str]:
+    if selected_project and selected_project in inventory:
+        return selected_project
+    state = load_app_state()
+    last_id = str(state.get("last_project_id", "") or "")
+    if last_id and last_id in inventory:
+        return last_id
+    last_manifest_path = str(state.get("last_manifest_path", "") or "")
+    if last_manifest_path:
+        for key, meta in inventory.items():
+            if meta.get("manifest_path") == last_manifest_path:
+                return key
+    return next(iter(inventory.keys()), None)
 
 
 def advisory_file_lock(lock_path: Path):
@@ -1223,6 +1332,13 @@ def stage_parse(
     settings.setdefault("cache_key_schema_version", CACHE_KEY_SCHEMA_VERSION)
 
     source_chapters, meta, source_ref, source_type = extract_source_chapters(input_path, url, raw_text)
+    first_chunk_text = ""
+    for chapter in source_chapters:
+        candidate = str(chapter.get("text", "") or "").strip()
+        if candidate:
+            first_chunk_text = candidate[:2000]
+            break
+    source_content_sig = hashlib.md5(first_chunk_text.encode("utf-8")).hexdigest()[:10] if first_chunk_text else "empty"
     cache = AudioCache(max_size_mb=int(settings.get("cache_max_size_mb", 500)))
     pronunciation_hash = hash_dict(settings.get("pronunciation_overrides", {}))
 
@@ -1317,6 +1433,16 @@ def stage_parse(
     settings["character_voices"] = settings.get("character_voices", {})
     book_title = meta.get("title") or "Untitled"
     book_author = meta.get("author") or "Unknown"
+    book_key = make_book_profile_key({"title": book_title, "author": book_author, "source_type": source_type})
+    profile = load_book_profile(book_key)
+    profile_character_voices = profile.get("character_voices", {}) if isinstance(profile.get("character_voices", {}), dict) else {}
+    profile_pron = profile.get("pronunciation_overrides", {}) if isinstance(profile.get("pronunciation_overrides", {}), dict) else {}
+    merged_character_voices = dict(profile_character_voices)
+    merged_character_voices.update(settings.get("character_voices", {}))
+    merged_pron = dict(profile_pron)
+    merged_pron.update(settings.get("pronunciation_overrides", {}))
+    settings["character_voices"] = merged_character_voices
+    settings["pronunciation_overrides"] = merged_pron
     manifest = build_manifest(
         settings=settings,
         chapters=manifest_chapters,
@@ -1327,12 +1453,48 @@ def stage_parse(
             "source_type": source_type,
         },
     )
+    apply_character_voices_to_segments(manifest, merged_character_voices)
+    post_merge_pron_hash = hash_dict(merged_pron)
+    for chapter in manifest.get("chapters", []):
+        for segment in chapter.get("segments", []):
+            text = str(segment.get("text", "") or "")
+            voice = str(segment.get("voice", settings.get("narrator_voice", "en-US-GuyNeural")) or settings.get("narrator_voice", "en-US-GuyNeural"))
+            text_hash = hashlib.md5(f"{text}|{voice}|{engine_name}|{speed}".encode("utf-8")).hexdigest()
+            segment["text_hash"] = text_hash
+            cached_file = cache.get(
+                text,
+                voice,
+                engine_name,
+                speed=speed,
+                pronunciation_hash=post_merge_pron_hash,
+                speed_mode=speed_mode,
+            )
+            if cached_file:
+                segment["status"] = "cached"
+                segment["cache_file"] = cached_file
+                segment["duration_seconds"] = get_duration_ffprobe(cached_file)
+            else:
+                segment["status"] = "pending"
+                segment["cache_file"] = None
+                segment["duration_seconds"] = None
+        chapter["status"] = "complete" if all(seg.get("status") == "cached" for seg in chapter.get("segments", [])) else "pending"
+
     manifest["progress"]["estimated_remaining_seconds"] = estimate_generation_seconds(total_chars, engine_name)
+    manifest["progress"]["total_segments"] = sum(len(ch.get("segments", [])) for ch in manifest.get("chapters", []))
+    manifest["progress"]["completed_segments"] = sum(
+        1 for ch in manifest.get("chapters", []) for seg in ch.get("segments", []) if seg.get("status") == "cached"
+    )
     manifest["character_occurrences"] = character_occurrences
     manifest["runtime"]["cloud_backup"]["enabled"] = bool(settings.get("enable_free_cloud_memory", False))
     manifest["runtime"]["cloud_backup"]["url"] = str(settings.get("free_cloud_manifest_url", "") or "")
+    source_fingerprint = hashlib.md5(
+        f"{source_type}|{source_ref}|{book_title}|{book_author}|{total_chars}|{source_content_sig}".encode("utf-8")
+    ).hexdigest()[:12]
+    manifest["runtime"]["project_id"] = f"{slugify(book_title)}_{source_fingerprint}"
+    manifest["runtime"]["source_fingerprint"] = source_fingerprint
+    manifest["runtime"]["book_profile_key"] = book_key
 
-    manifest_name = f"{slugify(book_title)}_manifest.json"
+    manifest_name = f"{slugify(book_title)}_{source_fingerprint}_manifest.json"
     manifest_path = str(MANIFESTS_DIR / manifest_name)
     update_run_state(manifest, "parsed", "Parse completed", manifest_path=None)
     save_manifest(manifest, manifest_path)
@@ -1360,7 +1522,14 @@ async def stage_generate(
     pending: list[tuple[int, int]] = []
     for c_idx, chapter in enumerate(manifest.get("chapters", [])):
         for s_idx, segment in enumerate(chapter.get("segments", [])):
-            if segment.get("status") != "cached":
+            if segment.get("status") == "cached":
+                cache_file = str(segment.get("cache_file", "") or "")
+                if not cache_file or not Path(cache_file).exists():
+                    segment["status"] = "pending"
+                    segment["cache_file"] = None
+                    segment["duration_seconds"] = None
+                    pending.append((c_idx, s_idx))
+            else:
                 pending.append((c_idx, s_idx))
 
     total = len(pending)
@@ -1843,7 +2012,11 @@ def manifest_has_generation_errors(manifest: dict[str, Any]) -> bool:
         for segment in chapter.get("segments", []):
             if segment.get("status") == "error":
                 return True
-            if segment.get("status") != "cached" and not segment.get("cache_file"):
+            if segment.get("status") == "cached":
+                cache_file = str(segment.get("cache_file", "") or "")
+                if not cache_file or not Path(cache_file).exists():
+                    return True
+            elif not segment.get("cache_file"):
                 return True
     return False
 
@@ -2004,6 +2177,7 @@ def resolve_source_inputs(
     file_obj: Any,
     url: str,
     text: str,
+    fallback_file_path: str = "",
 ) -> tuple[Optional[str], str, str]:
     mode = (input_mode or "file").lower()
     file_path = getattr(file_obj, "name", None) if file_obj else None
@@ -2013,7 +2187,7 @@ def resolve_source_inputs(
         return None, url_value, ""
     if "text" in mode or "paste" in mode:
         return None, "", text_value
-    return file_path, "", ""
+    return (file_path or existing_path_or_empty(fallback_file_path) or None), "", ""
 
 
 def collect_project_inventory() -> dict[str, dict[str, str]]:
@@ -2064,6 +2238,22 @@ def collect_project_inventory() -> dict[str, dict[str, str]]:
             "output_path": "",
             "storage": "cloud",
         }
+    last_cloud = str(load_app_state().get("last_cloud_url", "") or "")
+    if last_cloud:
+        key = f"cloud::{last_cloud}"
+        inventory.setdefault(
+            key,
+            {
+                "id": key,
+                "label": f"{last_cloud[:44]}... · cloud",
+                "title": "Cloud backup",
+                "state": "cloud",
+                "manifest_path": "",
+                "cloud_url": last_cloud,
+                "output_path": "",
+                "storage": "cloud",
+            },
+        )
     return inventory
 
 
@@ -2082,6 +2272,27 @@ def project_meta_to_markdown(meta: Optional[dict[str, str]]) -> str:
     if meta.get("cloud_url"):
         lines.append(f"**Cloud URL:** `{meta['cloud_url']}`")
     return "\n\n".join(lines)
+
+
+def apply_character_voices_to_segments(manifest: dict[str, Any], char_map: dict[str, dict[str, Any]]) -> None:
+    settings = manifest.get("settings", {})
+    narrator_voice = str(settings.get("narrator_voice", "en-US-GuyNeural") or "en-US-GuyNeural")
+    dialogue_voice = str(settings.get("dialogue_voice", "en-US-JennyNeural") or "en-US-JennyNeural")
+    for chapter in manifest.get("chapters", []):
+        for segment in chapter.get("segments", []):
+            speaker = str(segment.get("speaker", "narrator") or "narrator")
+            old_voice = str(segment.get("voice", "") or "")
+            if speaker in (None, "", "narrator"):
+                new_voice = narrator_voice
+            else:
+                entry = char_map.get(speaker) or {"voice": dialogue_voice, "detected_by": "auto"}
+                new_voice = str(entry.get("voice", dialogue_voice) or dialogue_voice)
+            if old_voice and old_voice != new_voice:
+                # Voice changed, cached clip is no longer valid.
+                segment["status"] = "pending"
+                segment["cache_file"] = None
+                segment["duration_seconds"] = None
+            segment["voice"] = new_voice
 
 
 MOBILE_CSS = """
@@ -2173,6 +2384,9 @@ def build_ui():
         project_map_state = gr.State({})
         voice_catalog_state = gr.State([])
         voice_page_state = gr.State(0)
+        remembered_adv_file_state = gr.State("")
+        remembered_quick_file_state = gr.State("")
+        draft_saved_state = gr.State("")
 
         with gr.Sidebar(open=True):
             gr.Markdown("## My Projects")
@@ -2182,6 +2396,7 @@ def build_ui():
             with gr.Row():
                 refresh_projects_btn = gr.Button("Refresh", variant="secondary")
                 load_project_btn = gr.Button("Load", variant="primary")
+            resume_last_btn = gr.Button("Resume Last Project", variant="primary")
             delete_project_btn = gr.Button("Delete Selected", variant="stop")
             project_action_status = gr.Markdown("")
 
@@ -2227,6 +2442,7 @@ def build_ui():
             quick_cancel_btn = gr.Button("Cancel", variant="stop", elem_classes=["easy-action-btn"])
             quick_state_badge = gr.Markdown(runtime_state_badge("idle", "Ready"))
             quick_status = gr.Markdown("")
+            quick_draft_restore_md = gr.Markdown("")
             quick_chapter_preview_md = gr.Markdown("_No chapter preview yet._")
             quick_player = gr.Audio(label="Audiobook", type="filepath")
             quick_download = gr.File(label="Download")
@@ -2243,6 +2459,7 @@ def build_ui():
             text_input = gr.Textbox(label="Raw text", lines=8, visible=False)
             parse_btn = gr.Button("Parse & Build Manifest", variant="primary")
             parse_status = gr.Markdown("")
+            draft_restore_info_md = gr.Markdown("")
             chapter_list_md = gr.Markdown("")
             chapter_preview_md = gr.Markdown("_No chapter preview yet._")
             time_estimate = gr.Markdown("")
@@ -2331,6 +2548,74 @@ def build_ui():
                 gr.Dropdown(choices=voice_choices, value=default_d),
             )
 
+        def on_restore_ui_draft():
+            draft = load_ui_draft()
+            adv_mode = str(draft.get("adv_input_mode", "File") or "File")
+            quick_mode = str(draft.get("quick_input_mode", "Paste Text") or "Paste Text")
+            adv_file_path = existing_path_or_empty(str(draft.get("adv_file_path", "") or ""))
+            quick_file_path = existing_path_or_empty(str(draft.get("quick_file_path", "") or ""))
+            adv_msg = f"Remembered file: `{adv_file_path}`" if adv_file_path else ""
+            quick_msg = f"Remembered file: `{quick_file_path}`" if quick_file_path else ""
+            return (
+                gr.Radio(value=adv_mode),
+                gr.Textbox(value=str(draft.get("adv_url", "") or "")),
+                gr.Textbox(value=str(draft.get("adv_text", "") or "")),
+                gr.Radio(value=quick_mode),
+                gr.Textbox(value=str(draft.get("quick_url", "") or "")),
+                gr.Textbox(value=str(draft.get("quick_text", "") or "")),
+                gr.Radio(value=str(draft.get("quick_output_format", "MP3") or "MP3")),
+                gr.Checkbox(value=bool(draft.get("quick_free_cloud", True))),
+                gr.Textbox(value=str(draft.get("cloud_manifest_url", "") or "")),
+                adv_file_path,
+                quick_file_path,
+                adv_msg,
+                quick_msg,
+            )
+
+        def on_save_ui_draft(
+            adv_mode: str,
+            adv_url: str,
+            adv_text: str,
+            quick_mode: str,
+            quick_url: str,
+            quick_text: str,
+            quick_output_fmt: str,
+            quick_free_cloud_val: bool,
+            cloud_manifest_val: str,
+            remembered_adv_file: str,
+            remembered_quick_file: str,
+        ):
+            draft = load_ui_draft()
+            draft["adv_input_mode"] = adv_mode
+            draft["adv_url"] = adv_url
+            draft["adv_text"] = adv_text
+            draft["quick_input_mode"] = quick_mode
+            draft["quick_url"] = quick_url
+            draft["quick_text"] = quick_text
+            draft["quick_output_format"] = quick_output_fmt
+            draft["quick_free_cloud"] = bool(quick_free_cloud_val)
+            draft["cloud_manifest_url"] = cloud_manifest_val
+            draft["adv_file_path"] = existing_path_or_empty(remembered_adv_file)
+            draft["quick_file_path"] = existing_path_or_empty(remembered_quick_file)
+            save_ui_draft(draft)
+            return now_iso()
+
+        def on_adv_file_upload(file_obj: Any):
+            remembered = copy_uploaded_input(file_obj, "advanced")
+            draft = load_ui_draft()
+            draft["adv_file_path"] = remembered
+            save_ui_draft(draft)
+            msg = f"Remembered file: `{remembered}`" if remembered else ""
+            return remembered, msg
+
+        def on_quick_file_upload(file_obj: Any):
+            remembered = copy_uploaded_input(file_obj, "quick")
+            draft = load_ui_draft()
+            draft["quick_file_path"] = remembered
+            save_ui_draft(draft)
+            msg = f"Remembered file: `{remembered}`" if remembered else ""
+            return remembered, msg
+
         def on_voice_browser_refresh(engine_label: str):
             catalog = voice_catalog_for_engine(engine_label)
             pager = _voice_browser_pager_updates(catalog, 0)
@@ -2345,7 +2630,7 @@ def build_ui():
         def on_refresh_projects(selected_project: Optional[str] = None):
             inventory = collect_project_inventory()
             choices = list(inventory.keys())
-            selected = selected_project if selected_project in inventory else (choices[0] if choices else None)
+            selected = choose_resume_project_id(inventory, selected_project)
             details = project_meta_to_markdown(inventory.get(selected))
             return gr.Dropdown(choices=choices, value=selected), inventory, details, ""
 
@@ -2362,6 +2647,7 @@ def build_ui():
                     "_No data yet._",
                     "_No chapter preview yet._",
                     [],
+                    [],
                     "",
                     "",
                     "",
@@ -2377,6 +2663,7 @@ def build_ui():
                     "_No data yet._",
                     "_No chapter preview yet._",
                     [],
+                    [],
                     "",
                     "",
                     "",
@@ -2389,7 +2676,8 @@ def build_ui():
                     cloud_url = str(meta.get("cloud_url", "") or "")
                     manifest = load_manifest_from_free_cloud(cloud_url)
                     title = manifest.get("book", {}).get("title", "Cloud_Manifest")
-                    manifest_path = str(MANIFESTS_DIR / f"{slugify(title)}_cloud_manifest.json")
+                    cloud_fingerprint = hashlib.md5(cloud_url.strip().encode("utf-8")).hexdigest()[:10]
+                    manifest_path = str(MANIFESTS_DIR / f"{slugify(title)}_{cloud_fingerprint}_cloud_manifest.json")
                     save_manifest(manifest, manifest_path)
                 else:
                     manifest_path = str(meta.get("manifest_path", "") or "")
@@ -2398,6 +2686,7 @@ def build_ui():
                 chapter_rows = build_chapter_table(manifest)
                 preview_md = build_chapter_preview_markdown(manifest)
                 char_rows = build_character_table(manifest)
+                pron_rows_out = pronunciation_overrides_to_rows(manifest.get("settings", {}).get("pronunciation_overrides", {}))
                 estimate = int(manifest.get("progress", {}).get("estimated_remaining_seconds", 0))
                 parse_msg = (
                     f"Loaded **{manifest.get('book', {}).get('title', 'project')}** with "
@@ -2413,12 +2702,14 @@ def build_ui():
                         "cloud_url": cloud_url,
                     }
                 )
+                remember_last_project(project_id=project_id, manifest_path=manifest_path, cloud_url=cloud_url)
                 return (
                     "Project loaded.",
                     parse_msg,
                     rows_to_markdown(["Chapter", "Segments", "Characters Found", "Cache Status"], chapter_rows),
                     preview_md,
                     char_rows,
+                    pron_rows_out,
                     f"Estimated generation time: **~{estimate // 60} min {estimate % 60}s**",
                     manifest_path,
                     cloud_url,
@@ -2432,6 +2723,7 @@ def build_ui():
                     "",
                     "_No data yet._",
                     "_No chapter preview yet._",
+                    [],
                     [],
                     "",
                     "",
@@ -2460,6 +2752,12 @@ def build_ui():
                     manifest_path.unlink()
                 with contextlib.suppress(Exception):
                     manifest_path.with_suffix(manifest_path.suffix + ".bak").unlink()
+                app_state = load_app_state()
+                if str(app_state.get("last_manifest_path", "") or "") == str(manifest_path):
+                    app_state.pop("last_project_id", None)
+                    app_state.pop("last_manifest_path", None)
+                    app_state.pop("last_cloud_url", None)
+                    save_app_state(app_state)
                 inventory = collect_project_inventory()
                 choices = list(inventory.keys())
                 selected = choices[0] if choices else None
@@ -2478,6 +2776,7 @@ def build_ui():
         def on_parse(
             input_mode_label: str,
             file_obj: Any,
+            remembered_adv_file: str,
             url: str,
             text: str,
             engine_label: str,
@@ -2492,7 +2791,13 @@ def build_ui():
             cloud_url: str,
         ):
             try:
-                input_path, parsed_url, parsed_text = resolve_source_inputs(input_mode_label, file_obj, url, text)
+                input_path, parsed_url, parsed_text = resolve_source_inputs(
+                    input_mode_label,
+                    file_obj,
+                    url,
+                    text,
+                    fallback_file_path=remembered_adv_file,
+                )
                 engine_name = normalize_engine_label(engine_label)
                 norm_speed_mode = normalize_speed_mode_label(speed_mode_label)
                 narrator = narrator or "en-US-GuyNeural"
@@ -2533,7 +2838,13 @@ def build_ui():
                 chapter_rows = build_chapter_table(manifest)
                 preview_md = build_chapter_preview_markdown(manifest)
                 char_rows = build_character_table(manifest)
+                pron_rows_out = pronunciation_overrides_to_rows(manifest.get("settings", {}).get("pronunciation_overrides", {}))
                 estimate = int(manifest["progress"].get("estimated_remaining_seconds", 0))
+                remember_last_project(
+                    project_id=f"local::{manifest_path}",
+                    manifest_path=manifest_path,
+                    cloud_url=cloud_url_effective,
+                )
                 status = (
                     f"Parsed **{len(manifest.get('chapters', []))}** chapters, "
                     f"**{manifest['progress']['total_segments']}** segments. "
@@ -2544,13 +2855,14 @@ def build_ui():
                     rows_to_markdown(["Chapter", "Segments", "Characters Found", "Cache Status"], chapter_rows),
                     preview_md,
                     char_rows,
+                    pron_rows_out,
                     f"Estimated generation time: **~{estimate // 60} min {estimate % 60}s**",
                     manifest_path,
                     cloud_url_effective,
                     gr.Textbox(value=cloud_url_effective),
                 )
             except Exception as exc:
-                return (f"Parse failed: {exc}", "_No data yet._", "_No chapter preview yet._", [], "", "", "", gr.Textbox(value=""))
+                return (f"Parse failed: {exc}", "_No data yet._", "_No chapter preview yet._", [], [], "", "", "", gr.Textbox(value=""))
 
         def on_cancel(manifest_path: str):
             cancel_event.set()
@@ -2603,7 +2915,11 @@ def build_ui():
                 settings["dialogue_voice"] = dialogue or settings.get("dialogue_voice", "en-US-JennyNeural")
                 settings["speed_multiplier"] = float(speed)
                 settings["speed_mode"] = normalize_speed_mode_label(speed_mode_label)
-                settings["pronunciation_overrides"] = parse_pronunciation_table(pron_rows)
+                parsed_pron = parse_pronunciation_table(pron_rows)
+                if parsed_pron:
+                    settings["pronunciation_overrides"] = parsed_pron
+                else:
+                    settings["pronunciation_overrides"] = settings.get("pronunciation_overrides", {})
                 settings["music_duck_db"] = float(music_db)
                 settings["background_music"] = getattr(music_obj, "name", None) if music_obj else None
                 settings["output_format"] = "m4b" if out_fmt.lower().startswith("m4b") else "mp3"
@@ -2624,24 +2940,29 @@ def build_ui():
                         updated_char_map[character] = {"voice": voice, "detected_by": detected_by or "manual"}
                 if updated_char_map:
                     settings["character_voices"] = updated_char_map
-                    for chapter in manifest.get("chapters", []):
-                        for segment in chapter.get("segments", []):
-                            speaker = segment.get("speaker")
-                            if speaker in updated_char_map:
-                                segment["voice"] = updated_char_map[speaker]["voice"]
-                                segment["status"] = "pending"
-                                segment["cache_file"] = None
-                                segment["duration_seconds"] = None
+                apply_character_voices_to_segments(manifest, settings.get("character_voices", {}))
 
                 manifest["settings"] = settings
-                manifest.setdefault("runtime", {})["assembly"] = {
-                    "concat_done": False,
-                    "music_mixed": False,
-                    "speed_adjusted": False,
-                    "normalized": False,
-                    "output_done": False,
-                }
+                segments_need_generation = any(
+                    seg.get("status") != "cached"
+                    for chap in manifest.get("chapters", [])
+                    for seg in chap.get("segments", [])
+                )
+                if segments_need_generation:
+                    manifest.setdefault("runtime", {})["assembly"] = {
+                        "concat_done": False,
+                        "music_mixed": False,
+                        "speed_adjusted": False,
+                        "normalized": False,
+                        "output_done": False,
+                    }
                 update_run_state(manifest, "idle", "Ready to generate", manifest_path=None)
+                book_key = make_book_profile_key(manifest.get("book", {}))
+                save_book_profile(
+                    book_key,
+                    settings.get("character_voices", {}),
+                    settings.get("pronunciation_overrides", {}),
+                )
                 save_manifest(manifest, manifest_path)
 
                 run_started = time.time()
@@ -2692,6 +3013,11 @@ def build_ui():
                         cloud_link = upload_manifest_to_free_cloud(manifest)
                         settings["free_cloud_manifest_url"] = cloud_link
                         manifest["runtime"]["cloud_backup"] = {"enabled": True, "url": cloud_link}
+                remember_last_project(
+                    project_id=f"local::{manifest_path}",
+                    manifest_path=manifest_path,
+                    cloud_url=str(settings.get("free_cloud_manifest_url", "") or ""),
+                )
                 save_manifest(manifest, manifest_path)
                 progress_rows = build_chapter_progress(manifest)
                 return (
@@ -2726,6 +3052,11 @@ def build_ui():
                 manifest["runtime"]["cloud_backup"]["url"] = cloud_link
                 manifest.setdefault("settings", {})["enable_free_cloud_memory"] = True
                 manifest["settings"]["free_cloud_manifest_url"] = cloud_link
+                remember_last_project(
+                    project_id=f"local::{manifest_path}",
+                    manifest_path=manifest_path,
+                    cloud_url=cloud_link,
+                )
                 save_manifest(manifest, manifest_path)
                 return f"Backed up manifest to free cloud: `{cloud_link}`", cloud_link, gr.Textbox(value=cloud_link)
             except Exception as exc:
@@ -2739,6 +3070,7 @@ def build_ui():
                     "_No data yet._",
                     "_No chapter preview yet._",
                     [],
+                    [],
                     "",
                     "",
                     "",
@@ -2747,7 +3079,8 @@ def build_ui():
             try:
                 manifest = load_manifest_from_free_cloud(cloud_url)
                 title = manifest.get("book", {}).get("title", "Cloud_Manifest")
-                manifest_name = f"{slugify(title)}_cloud_manifest.json"
+                cloud_fingerprint = hashlib.md5(cloud_url.strip().encode("utf-8")).hexdigest()[:10]
+                manifest_name = f"{slugify(title)}_{cloud_fingerprint}_cloud_manifest.json"
                 manifest_path = str(MANIFESTS_DIR / manifest_name)
                 manifest.setdefault("runtime", {}).setdefault("cloud_backup", {})
                 manifest["runtime"]["cloud_backup"]["enabled"] = True
@@ -2758,10 +3091,16 @@ def build_ui():
                 chapter_rows = build_chapter_table(manifest)
                 preview_md = build_chapter_preview_markdown(manifest)
                 char_rows = build_character_table(manifest)
+                pron_rows_out = pronunciation_overrides_to_rows(manifest.get("settings", {}).get("pronunciation_overrides", {}))
                 estimate = int(manifest.get("progress", {}).get("estimated_remaining_seconds", 0))
                 parse_msg = (
                     f"Loaded cloud manifest with **{len(manifest.get('chapters', []))}** chapters and "
                     f"**{manifest.get('progress', {}).get('total_segments', 0)}** segments."
+                )
+                remember_last_project(
+                    project_id=f"local::{manifest_path}",
+                    manifest_path=manifest_path,
+                    cloud_url=cloud_url.strip(),
                 )
                 return (
                     "Cloud manifest restored.",
@@ -2769,6 +3108,7 @@ def build_ui():
                     rows_to_markdown(["Chapter", "Segments", "Characters Found", "Cache Status"], chapter_rows),
                     preview_md,
                     char_rows,
+                    pron_rows_out,
                     f"Estimated generation time: **~{estimate // 60} min {estimate % 60}s**",
                     manifest_path,
                     cloud_url.strip(),
@@ -2780,6 +3120,7 @@ def build_ui():
                     "",
                     "_No data yet._",
                     "_No chapter preview yet._",
+                    [],
                     [],
                     "",
                     "",
@@ -2798,6 +3139,7 @@ def build_ui():
         def on_quick_generate(
             input_mode_label: str,
             file_obj: Any,
+            remembered_quick_file: str,
             url: str,
             text: str,
             output_fmt: str,
@@ -2805,7 +3147,13 @@ def build_ui():
             progress=gr.Progress(),
         ):
             cancel_event.clear()
-            input_path, parsed_url, parsed_text = resolve_source_inputs(input_mode_label, file_obj, url, text)
+            input_path, parsed_url, parsed_text = resolve_source_inputs(
+                input_mode_label,
+                file_obj,
+                url,
+                text,
+                fallback_file_path=remembered_quick_file,
+            )
             if not input_path and not parsed_url and not parsed_text:
                 return (
                     "Please provide a file, URL, or text.",
@@ -2845,6 +3193,7 @@ def build_ui():
                     raw_text=parsed_text,
                 )
                 preview_md = build_chapter_preview_markdown(manifest)
+                remember_last_project(project_id=f"local::{manifest_path}", manifest_path=manifest_path, cloud_url="")
 
                 def progress_cb(done: int, total: int, desc: str) -> None:
                     ratio = 0.05 + ((done / total) * 0.8 if total else 0.8)
@@ -2915,6 +3264,11 @@ def build_ui():
                         manifest["runtime"]["cloud_backup"] = {"enabled": True, "url": cloud_url}
                         manifest["settings"]["free_cloud_manifest_url"] = cloud_url
                         save_manifest(manifest, manifest_path)
+                remember_last_project(
+                    project_id=f"local::{manifest_path}",
+                    manifest_path=manifest_path,
+                    cloud_url=cloud_url,
+                )
                 progress(1.0, desc="Done")
                 cloud_line = f"\nCloud memory URL: `{cloud_url}`" if cloud_url else ""
                 status = f"Done. Your audiobook is ready to play/download.{cloud_line}"
@@ -2957,6 +3311,31 @@ def build_ui():
             inputs=[project_selector],
             outputs=[project_selector, project_map_state, project_details, project_action_status],
         )
+        restore_draft_evt = app.load(
+            on_restore_ui_draft,
+            inputs=[],
+            outputs=[
+                input_mode,
+                url_input,
+                text_input,
+                quick_input_mode,
+                quick_url_input,
+                quick_text_input,
+                quick_output_format,
+                quick_free_cloud,
+                cloud_manifest_url,
+                remembered_adv_file_state,
+                remembered_quick_file_state,
+                draft_restore_info_md,
+                quick_draft_restore_md,
+            ],
+        )
+        restore_draft_evt.then(on_input_mode_change, inputs=[input_mode], outputs=[file_input, url_input, text_input])
+        restore_draft_evt.then(
+            on_input_mode_change,
+            inputs=[quick_input_mode],
+            outputs=[quick_file_input, quick_url_input, quick_text_input],
+        )
         app.load(
             on_voice_browser_refresh,
             inputs=[engine_select],
@@ -2966,6 +3345,29 @@ def build_ui():
             on_refresh_projects,
             inputs=[project_selector],
             outputs=[project_selector, project_map_state, project_details, project_action_status],
+        )
+        resume_evt = resume_last_btn.click(
+            on_refresh_projects,
+            inputs=[project_selector],
+            outputs=[project_selector, project_map_state, project_details, project_action_status],
+        )
+        resume_evt.then(
+            on_load_project,
+            inputs=[project_selector, project_map_state],
+            outputs=[
+                project_action_status,
+                parse_status,
+                chapter_list_md,
+                chapter_preview_md,
+                character_table,
+                pronunciation_table,
+                time_estimate,
+                manifest_path_state,
+                cloud_url_state,
+                cloud_manifest_url,
+                generation_badge,
+                project_details,
+            ],
         )
         project_selector.change(on_project_select, inputs=[project_selector, project_map_state], outputs=[project_details])
         load_project_btn.click(
@@ -2977,6 +3379,7 @@ def build_ui():
                 chapter_list_md,
                 chapter_preview_md,
                 character_table,
+                pronunciation_table,
                 time_estimate,
                 manifest_path_state,
                 cloud_url_state,
@@ -2989,6 +3392,12 @@ def build_ui():
             on_delete_project,
             inputs=[project_selector, project_map_state],
             outputs=[project_action_status, project_selector, project_map_state, project_details],
+        )
+        file_input.change(on_adv_file_upload, inputs=[file_input], outputs=[remembered_adv_file_state, draft_restore_info_md])
+        quick_file_input.change(
+            on_quick_file_upload,
+            inputs=[quick_file_input],
+            outputs=[remembered_quick_file_state, quick_draft_restore_md],
         )
         input_mode.change(on_input_mode_change, inputs=[input_mode], outputs=[file_input, url_input, text_input])
         quick_input_mode.change(
@@ -3011,6 +3420,7 @@ def build_ui():
             inputs=[
                 input_mode,
                 file_input,
+                remembered_adv_file_state,
                 url_input,
                 text_input,
                 engine_select,
@@ -3029,6 +3439,7 @@ def build_ui():
                 chapter_list_md,
                 chapter_preview_md,
                 character_table,
+                pronunciation_table,
                 time_estimate,
                 manifest_path_state,
                 cloud_url_state,
@@ -3068,6 +3479,7 @@ def build_ui():
             inputs=[
                 quick_input_mode,
                 quick_file_input,
+                remembered_quick_file_state,
                 quick_url_input,
                 quick_text_input,
                 quick_output_format,
@@ -3075,6 +3487,34 @@ def build_ui():
             ],
             outputs=[quick_status, quick_state_badge, quick_chapter_preview_md, quick_player, quick_download, quick_cloud_url],
         )
+        for component in [
+            input_mode,
+            url_input,
+            text_input,
+            quick_input_mode,
+            quick_url_input,
+            quick_text_input,
+            quick_output_format,
+            quick_free_cloud,
+            cloud_manifest_url,
+        ]:
+            component.change(
+                on_save_ui_draft,
+                inputs=[
+                    input_mode,
+                    url_input,
+                    text_input,
+                    quick_input_mode,
+                    quick_url_input,
+                    quick_text_input,
+                    quick_output_format,
+                    quick_free_cloud,
+                    cloud_manifest_url,
+                    remembered_adv_file_state,
+                    remembered_quick_file_state,
+                ],
+                outputs=[draft_saved_state],
+            )
         quick_evt.then(
             on_refresh_projects,
             inputs=[project_selector],
@@ -3092,6 +3532,7 @@ def build_ui():
                 chapter_list_md,
                 chapter_preview_md,
                 character_table,
+                pronunciation_table,
                 time_estimate,
                 manifest_path_state,
                 cloud_url_state,

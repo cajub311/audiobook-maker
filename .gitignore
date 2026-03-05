@@ -11,3 +11,6 @@ tts_cache/
 temp/
 output/
 pronunciations/
+saved_inputs/
+ui_draft.json
+app_state.json

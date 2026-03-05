@@ -8,7 +8,9 @@ import asyncio
 from audiobook_creator_v7 import (
     AudioCache,
     build_atempo_filter,
+    choose_resume_project_id,
     load_manifest,
+    manifest_has_generation_errors,
     save_manifest,
     stage_generate,
     validate_safe_http_url,
@@ -80,6 +82,15 @@ class ReliabilityTests(unittest.TestCase):
         }
         out = asyncio.run(stage_generate(manifest))
         self.assertEqual(out.get("runtime", {}).get("state"), "generated")
+
+    def test_resume_selector_prefers_selected_or_last(self):
+        inventory = {"local::/tmp/a.json": {"manifest_path": "/tmp/a.json"}}
+        selected = choose_resume_project_id(inventory, "local::/tmp/a.json")
+        self.assertEqual(selected, "local::/tmp/a.json")
+
+    def test_manifest_error_when_cached_file_missing(self):
+        manifest = {"chapters": [{"segments": [{"status": "cached", "cache_file": "/definitely/missing.mp3"}]}]}
+        self.assertTrue(manifest_has_generation_errors(manifest))
 
 
 if __name__ == "__main__":

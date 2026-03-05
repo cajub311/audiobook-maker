@@ -24,6 +24,8 @@ Then open: `http://localhost:7860`
 - Tap **Generate Audiobook Now** (one-button flow).
 - Play and download from the same screen.
 - Optional: enable free cloud memory backup to continue later on another device.
+- Your input draft and selected source are auto-remembered for next launch.
+- Use **Resume Last Project** in the sidebar to continue quickly.
 
 If you want a temporary public link for your phone, run:
 
@@ -55,6 +57,9 @@ GRADIO_SHARE=1 python3 audiobook_creator_v7.py
 - URL safety guard for remote fetches (blocks private-network targets)
 - Unique temp generation filenames to avoid parallel write collisions
 - Quick mode auto-fallback from edge-tts to offline Kokoro when needed
+- Draft persistence (`ui_draft.json`) for phone text/url/file workflows
+- Last-project resume memory (`app_state.json`) and one-tap resume button
+- Per-book memory for character voices + pronunciation overrides (`pronunciations/book_profiles`)
 - Runtime output folders auto-created
 - Optional dependency fallbacks (graceful degradation)
 - Basic cancel handling during generation
