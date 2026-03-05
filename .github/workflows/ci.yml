@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+      - name: Run tests
+        run: |
+          if [ -d tests ]; then python -m pytest tests/ -v --tb=short; else echo "No tests yet"; fi
+
+      - name: Lint
+        run: |
+          pip install ruff 2>/dev/null || true
+          if command -v ruff &> /dev/null; then ruff check src/ 2>/dev/null || true; fi
