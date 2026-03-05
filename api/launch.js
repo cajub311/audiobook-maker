@@ -10,6 +10,7 @@ module.exports = function handler(req, res) {
       "Use Easy Mobile Mode tab for fastest setup",
       "Optional: use System tab for free cloud manifest backup/restore"
     ],
-    note: "Use python on systems where python3 is not available."
+    note: "Use python on systems where python3 is not available.",
+    health_endpoint: "/api/health"
   });
 };

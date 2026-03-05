@@ -50,8 +50,11 @@ GRADIO_SHARE=1 python3 audiobook_creator_v7.py
 - Bounded-queue generation workers for low-memory machines
 - Assembly checkpoints for safer resume after interruptions
 - FFmpeg timeout/retry wrapper for more robust long runs
-- Explicit run-state tracking (`idle`, `generating`, `assembling`, `cancelled`, `failed`, `completed`)
+- Explicit run-state tracking (`idle`, `parsed`, `generated`, `assembling`, `cancelled`, `failed`, `completed`)
 - System preflight diagnostics tab in UI
+- URL safety guard for remote fetches (blocks private-network targets)
+- Unique temp generation filenames to avoid parallel write collisions
+- Quick mode auto-fallback from edge-tts to offline Kokoro when needed
 - Runtime output folders auto-created
 - Optional dependency fallbacks (graceful degradation)
 - Basic cancel handling during generation
@@ -78,8 +81,17 @@ This repo includes a lightweight Vercel launcher website so visitors can discove
 
 - `index.html` - root launcher page (primary Vercel entrypoint)
 - `vercel.json` - minimal Vercel settings (`cleanUrls`, no trailing slash)
+- `.vercelignore` - excludes local runtime data from deployment payload
+- `manifest.webmanifest`, `service-worker.js`, `icon.svg` - mobile PWA-style launcher support
 - `website/index.html` - static launcher UI with quick-start commands
-- `api/launch.js` - JSON instructions endpoint
+- `api/launch.js`, `api/health.js` - JSON instruction + health endpoints
+
+### CI checks
+
+GitHub Actions workflow at `.github/workflows/ci.yml` runs:
+- Python syntax compile check
+- Reliability unit tests
+- Node smoke test for `/api/launch` handler
 
 ### Deploy to Vercel
 

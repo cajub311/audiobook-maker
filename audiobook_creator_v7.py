@@ -14,18 +14,21 @@ import asyncio
 import contextlib
 import gc
 import hashlib
+import ipaddress
 import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import tempfile
 import threading
 import time
+import uuid
 import wave
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 from urllib.parse import urlparse
@@ -42,6 +45,9 @@ TEMP_DIR = BASE_DIR / "temp"
 OUTPUT_DIR = BASE_DIR / "output"
 DEFAULT_FFMPEG_TIMEOUT_S = 240
 DEFAULT_FFMPEG_RETRIES = 2
+MAX_REMOTE_TEXT_BYTES = 2 * 1024 * 1024
+MAX_CLOUD_MANIFEST_BYTES = 1024 * 1024
+USER_AGENT = "AudiobookCreatorV7/1.0 (+mobile-safe-fetch)"
 
 
 def ensure_runtime_dirs() -> None:
@@ -56,7 +62,7 @@ def slugify(value: str, fallback: str = "book") -> str:
 
 
 def now_iso() -> str:
-    return datetime.utcnow().replace(microsecond=0).isoformat()
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
 def run_command(
@@ -189,6 +195,77 @@ def advisory_file_lock(lock_path: Path):
                 yield
 
     return _lock()
+
+
+def _host_matches_allowed(hostname: str, allowed_hosts: set[str]) -> bool:
+    host = hostname.lower().strip(".")
+    return any(host == allowed or host.endswith(f".{allowed}") for allowed in allowed_hosts)
+
+
+def _is_public_ip(ip_str: str) -> bool:
+    ip_obj = ipaddress.ip_address(ip_str)
+    return not (
+        ip_obj.is_private
+        or ip_obj.is_loopback
+        or ip_obj.is_link_local
+        or ip_obj.is_multicast
+        or ip_obj.is_unspecified
+        or ip_obj.is_reserved
+    )
+
+
+def validate_safe_http_url(raw_url: str, allowed_hosts: Optional[set[str]] = None) -> str:
+    parsed = urlparse((raw_url or "").strip())
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("Only http/https URLs are allowed.")
+    if not parsed.hostname:
+        raise ValueError("URL must include a hostname.")
+    hostname = parsed.hostname.strip(".")
+    if allowed_hosts and not _host_matches_allowed(hostname, allowed_hosts):
+        raise ValueError(f"URL host '{hostname}' is not allowed.")
+
+    try:
+        addr_info = socket.getaddrinfo(hostname, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ValueError(f"Could not resolve host '{hostname}'.") from exc
+    resolved_ips = {str(info[4][0]) for info in addr_info if info and info[4]}
+    if not resolved_ips:
+        raise ValueError(f"No IP addresses resolved for host '{hostname}'.")
+    for ip in resolved_ips:
+        if not _is_public_ip(ip):
+            raise ValueError("Refusing to access non-public/private network URLs.")
+
+    return parsed.geturl()
+
+
+def fetch_text_url(
+    raw_url: str,
+    max_bytes: int = MAX_REMOTE_TEXT_BYTES,
+    timeout_s: int = 20,
+    allowed_hosts: Optional[set[str]] = None,
+    allowed_content_types: Optional[tuple[str, ...]] = None,
+) -> str:
+    safe_url = validate_safe_http_url(raw_url, allowed_hosts=allowed_hosts)
+    req = Request(safe_url, headers={"User-Agent": USER_AGENT})
+    with urlopen(req, timeout=timeout_s) as response:
+        content_type = str(response.headers.get("Content-Type", "")).lower()
+        if allowed_content_types and not any(token in content_type for token in allowed_content_types):
+            raise ValueError(f"Unexpected content type: {content_type or 'unknown'}")
+        content_length = response.headers.get("Content-Length")
+        if content_length and int(content_length) > max_bytes:
+            raise ValueError("Remote response is too large.")
+
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = response.read(65536)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise ValueError("Remote response exceeded max allowed size.")
+            chunks.append(chunk)
+    return b"".join(chunks).decode("utf-8", errors="ignore")
 
 
 def estimate_generation_seconds(total_chars: int, engine_name: str) -> int:
@@ -834,18 +911,19 @@ def chunk_text(text: str, max_chars: int = 5500) -> list[str]:
 
 
 def extract_text_from_url(url: str) -> str:
+    safe_url = validate_safe_http_url(url)
+    html = fetch_text_url(
+        safe_url,
+        max_bytes=MAX_REMOTE_TEXT_BYTES,
+        timeout_s=20,
+        allowed_content_types=("text/", "application/xhtml+xml", "application/xml"),
+    )
     try:
         import trafilatura  # type: ignore
 
-        downloaded = trafilatura.fetch_url(url)
-        if not downloaded:
-            return ""
-        extracted = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
+        extracted = trafilatura.extract(html, include_comments=False, include_tables=False)
         return extracted or ""
     except Exception:
-        req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urlopen(req, timeout=20) as response:
-            html = response.read().decode("utf-8", errors="ignore")
         # Lightweight HTML cleanup fallback.
         html = re.sub(r"(?is)<script.*?>.*?</script>", " ", html)
         html = re.sub(r"(?is)<style.*?>.*?</style>", " ", html)
@@ -1030,8 +1108,13 @@ def upload_manifest_to_free_cloud(manifest: dict[str, Any]) -> str:
 
 
 def load_manifest_from_free_cloud(url: str) -> dict[str, Any]:
-    with urlopen(url.strip(), timeout=20) as response:
-        payload = response.read().decode("utf-8")
+    payload = fetch_text_url(
+        url.strip(),
+        max_bytes=MAX_CLOUD_MANIFEST_BYTES,
+        timeout_s=20,
+        allowed_hosts={"jsonblob.com"},
+        allowed_content_types=("application/json", "text/plain"),
+    )
     data = json.loads(payload)
     if not isinstance(data, dict):
         raise RuntimeError("Cloud manifest payload is not a JSON object.")
@@ -1283,7 +1366,7 @@ async def stage_generate(
     if total == 0:
         if progress_callback:
             progress_callback(1, 1, "All segments already cached.")
-        update_run_state(manifest, "completed", "All segments already cached", manifest_path)
+        update_run_state(manifest, "generated", "All segments already cached", manifest_path)
         return manifest
 
     lock = asyncio.Lock()
@@ -1317,7 +1400,7 @@ async def stage_generate(
                     segment["status"] = "cached"
             else:
                 ext = ".mp3" if "edge" in engine_name.lower() else ".wav"
-                tmp_path = str(CACHE_DIR / f"{segment['text_hash']}_{slugify(voice)}{ext}")
+                tmp_path = str(TEMP_DIR / f"gen_{ch_idx}_{seg_idx}_{uuid.uuid4().hex}{ext}")
                 if cancel_event and cancel_event.is_set():
                     return
                 result = await engine.generate(
@@ -1748,6 +1831,16 @@ def build_chapter_progress(manifest: dict[str, Any]) -> list[list[Any]]:
         done = sum(1 for seg in segs if seg.get("status") == "cached")
         rows.append([chapter.get("title"), chapter.get("status", "pending"), f"{done}/{len(segs)}"])
     return rows
+
+
+def manifest_has_generation_errors(manifest: dict[str, Any]) -> bool:
+    for chapter in manifest.get("chapters", []):
+        for segment in chapter.get("segments", []):
+            if segment.get("status") == "error":
+                return True
+            if segment.get("status") != "cached" and not segment.get("cache_file"):
+                return True
+    return False
 
 
 def rows_to_markdown(headers: list[str], rows: list[list[Any]]) -> str:
@@ -2246,12 +2339,12 @@ def build_ui():
             input_path, parsed_url, parsed_text = resolve_source_inputs(input_mode_label, file_obj, url, text)
             if not input_path and not parsed_url and not parsed_text:
                 return ("Please provide a file, URL, or text.", None, None, "")
-            engine_name = "edge-tts"
+            primary_engine = "edge-tts"
             narrator = "en-US-GuyNeural"
             dialogue = "en-US-JennyNeural"
             output_mode = "m4b" if str(output_fmt).lower().startswith("m4b") else "mp3"
             settings = {
-                "tts_engine": engine_name,
+                "tts_engine": primary_engine,
                 "narrator_voice": narrator,
                 "dialogue_voice": dialogue,
                 "character_voices": {},
@@ -2291,6 +2384,36 @@ def build_ui():
                 )
                 if cancel_event.is_set():
                     return ("Generation cancelled.", None, None, "")
+                if manifest_has_generation_errors(manifest):
+                    progress(0.55, desc="Retrying with offline engine")
+                    fallback_settings = manifest.get("settings", {})
+                    fallback_settings["tts_engine"] = "kokoro"
+                    fallback_settings["narrator_voice"] = "af_sarah"
+                    fallback_settings["dialogue_voice"] = "bf_emma"
+                    manifest["settings"] = fallback_settings
+                    for chapter in manifest.get("chapters", []):
+                        for segment in chapter.get("segments", []):
+                            if segment.get("status") == "cached":
+                                continue
+                            segment["status"] = "pending"
+                            segment["cache_file"] = None
+                            segment["duration_seconds"] = None
+                            segment.pop("error", None)
+                            if segment.get("speaker") in (None, "", "narrator"):
+                                segment["voice"] = "af_sarah"
+                            else:
+                                segment["voice"] = "bf_emma"
+                    save_manifest(manifest, manifest_path)
+                    manifest = run_coro_sync(
+                        stage_generate(
+                            manifest=manifest,
+                            manifest_path=manifest_path,
+                            cancel_event=cancel_event,
+                            progress_callback=progress_cb,
+                        )
+                    )
+                    if manifest_has_generation_errors(manifest):
+                        raise RuntimeError("Generation failed with both edge-tts and kokoro fallback.")
 
                 progress(0.92, desc="Assembling audiobook")
                 output_path = stage_assemble(

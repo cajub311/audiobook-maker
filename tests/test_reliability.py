@@ -3,8 +3,16 @@ import unittest
 from pathlib import Path
 import wave
 import contextlib
+import asyncio
 
-from audiobook_creator_v7 import AudioCache, build_atempo_filter, load_manifest, save_manifest
+from audiobook_creator_v7 import (
+    AudioCache,
+    build_atempo_filter,
+    load_manifest,
+    save_manifest,
+    stage_generate,
+    validate_safe_http_url,
+)
 
 
 def write_silence_wav(path: Path, duration_s: float = 0.5, sample_rate: int = 24000) -> None:
@@ -56,6 +64,22 @@ class ReliabilityTests(unittest.TestCase):
         chain = build_atempo_filter(3.0)
         self.assertTrue(chain.startswith("atempo="))
         self.assertIn(",", chain)
+
+    def test_validate_safe_http_url_rejects_private_hosts(self):
+        with self.assertRaises(ValueError):
+            validate_safe_http_url("http://127.0.0.1:8080")
+        with self.assertRaises(ValueError):
+            validate_safe_http_url("http://localhost:8000")
+
+    def test_stage_generate_cached_only_sets_generated_state(self):
+        manifest = {
+            "settings": {"tts_engine": "kokoro"},
+            "chapters": [{"segments": [{"status": "cached", "cache_file": "x"}], "status": "complete"}],
+            "progress": {"generation_started": None},
+            "runtime": {"state": "idle", "message": ""},
+        }
+        out = asyncio.run(stage_generate(manifest))
+        self.assertEqual(out.get("runtime", {}).get("state"), "generated")
 
 
 if __name__ == "__main__":

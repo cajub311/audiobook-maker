@@ -1,0 +1,8 @@
+manifests/
+tts_cache/
+temp/
+output/
+pronunciations/
+__pycache__/
+tests/
+*.pyc

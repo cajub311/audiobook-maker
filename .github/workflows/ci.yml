@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python syntax check
+        run: python -m py_compile audiobook_creator_v7.py
+
+      - name: Run tests
+        run: python -m unittest tests/test_reliability.py
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: API launcher smoke test
+        run: node -e "const h=require('./api/launch'); const r={setHeader(){},status(){return this},json(v){if(!v || !v.steps){process.exit(1)}; console.log('ok')}}; h({},r)"
+
+      - name: API health smoke test
+        run: node -e "const h=require('./api/health'); const r={setHeader(){},status(){return this},json(v){if(v.status!=='ok'){process.exit(1)}; console.log('ok')}}; h({},r)"

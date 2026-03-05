@@ -3,6 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#111827" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <title>Audiobook Maker - Mobile Launcher</title>
     <style>
       :root {
@@ -48,6 +51,17 @@
         text-decoration: none;
         font-weight: 600;
       }
+      .row {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+      @media (max-width: 640px) {
+        .btn {
+          width: 100%;
+          text-align: center;
+        }
+      }
     </style>
   </head>
   <body>
@@ -72,7 +86,12 @@ python3 audiobook_creator_v7.py</code></pre>
     <div class="card">
       <h2>Launcher API</h2>
       <p>Machine-readable startup steps:</p>
-      <a class="btn" href="/api/launch">Open /api/launch</a>
+      <div class="row">
+        <a class="btn" href="/api/launch">Open /api/launch</a>
+        <button class="btn" id="share-btn" type="button">Share this page</button>
+        <button class="btn" id="install-btn" type="button" hidden>Install launcher</button>
+      </div>
+      <p class="small" id="pwa-status">Checking install support...</p>
       <pre id="api-output"><code>Loading...</code></pre>
     </div>
 
@@ -86,6 +105,55 @@ python3 audiobook_creator_v7.py</code></pre>
     </div>
 
     <script>
+      var installPromptEvent = null;
+
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker
+          .register("/service-worker.js")
+          .then(function () {
+            document.getElementById("pwa-status").textContent =
+              "Offline launcher cache enabled.";
+          })
+          .catch(function () {
+            document.getElementById("pwa-status").textContent =
+              "Offline cache unavailable in this browser.";
+          });
+      } else {
+        document.getElementById("pwa-status").textContent =
+          "Service Worker unsupported in this browser.";
+      }
+
+      window.addEventListener("beforeinstallprompt", function (event) {
+        event.preventDefault();
+        installPromptEvent = event;
+        document.getElementById("install-btn").hidden = false;
+        document.getElementById("pwa-status").textContent =
+          "You can install this launcher to your home screen.";
+      });
+
+      document.getElementById("install-btn").addEventListener("click", function () {
+        if (!installPromptEvent) return;
+        installPromptEvent.prompt();
+      });
+
+      document.getElementById("share-btn").addEventListener("click", async function () {
+        var shareData = {
+          title: "Audiobook Maker Launcher",
+          text: "Open the mobile launcher",
+          url: window.location.href
+        };
+        try {
+          if (navigator.share) {
+            await navigator.share(shareData);
+            return;
+          }
+          await navigator.clipboard.writeText(window.location.href);
+          alert("Link copied to clipboard.");
+        } catch (_err) {
+          alert("Could not share the link.");
+        }
+      });
+
       fetch("/api/launch")
         .then(function (res) {
           return res.json();
@@ -101,6 +169,18 @@ python3 audiobook_creator_v7.py</code></pre>
           document.getElementById("api-output").textContent =
             "Could not load /api/launch.";
         });
+
+      fetch("/api/health")
+        .then(function (res) {
+          return res.json();
+        })
+        .then(function (data) {
+          if (data && data.status === "ok") {
+            document.getElementById("pwa-status").textContent +=
+              " Launcher API is healthy.";
+          }
+        })
+        .catch(function () {});
     </script>
   </body>
 </html>
