@@ -29,6 +29,20 @@ from pydantic import BaseModel
 
 SETTINGS_FILE = Path("settings.json")
 
+# ---------------------------------------------------------------------------
+# Pipeline injection points
+# These are set by audiobook_creator_v7.py when the full app is assembled.
+# Handlers fall back to stubs if these remain None.
+# ---------------------------------------------------------------------------
+_STAGE_PARSE = None
+_STAGE_GENERATE = None
+_STAGE_ASSEMBLE = None
+_GET_CACHE = None
+
+# In-memory store: manifest keyed by a session id
+_active_manifests: Dict[str, Any] = {}
+_active_cancel_events: Dict[str, threading.Event] = {}
+
 ENGINES: List[str] = [
     "edge-tts (Cloud, Free)",
     "Kokoro (Offline, CPU)",
@@ -185,7 +199,98 @@ def parse_book_handler(
             "⚠️  Please provide a file, URL, or text before parsing.",
         )
 
-    # ── Stub chapter data ────────────────────────────────────────────────────
+    # ── Real pipeline (injected by audiobook_creator_v7.py) ─────────────────
+    if _STAGE_PARSE is not None:
+        try:
+            # Resolve input
+            if file_obj is not None:
+                input_path = file_obj.name if hasattr(file_obj, "name") else str(file_obj)
+                source_type = "file"
+            elif url.strip():
+                input_path = url.strip()
+                source_type = "url"
+            else:
+                import tempfile
+                tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
+                tmp.write(text)
+                tmp.close()
+                input_path = tmp.name
+                source_type = "text"
+
+            engine_id = "edge-tts" if "edge" in engine.lower() else "kokoro"
+            settings = {
+                "tts_engine": engine_id,
+                "narrator_voice": EDGE_TTS_VOICES[0] if "edge" in engine.lower() else KOKORO_VOICES[0],
+                "dialogue_voice": EDGE_TTS_VOICES[1] if "edge" in engine.lower() else KOKORO_VOICES[1],
+            }
+
+            log_lines = []
+            def _progress_cb(msg, pct):
+                log_lines.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
+
+            manifest = _STAGE_PARSE(input_path, settings, progress_callback=_progress_cb)
+            # Store manifest for later use by generate handler
+            _active_manifests["current"] = manifest
+
+            chapters = manifest.get("chapters", [])
+            chapter_rows = []
+            for ch in chapters:
+                cached = sum(1 for s in ch["segments"] if s.get("status") == "cached")
+                total_s = len(ch["segments"])
+                chars = len(set(
+                    s.get("speaker") for s in ch["segments"]
+                    if s.get("speaker") and s.get("speaker") != "narrator"
+                ))
+                chapter_rows.append([
+                    ch["index"] + 1,
+                    ch["title"],
+                    total_s,
+                    chars,
+                    "✅" if cached == total_s else f"{cached}/{total_s}",
+                ])
+
+            analysis = manifest.get("_analysis", {})
+            total_segments = manifest["progress"]["total_segments"]
+            est_secs = manifest["progress"].get("estimated_remaining_seconds") or 0
+            est_min = max(1, int(est_secs / 60))
+            dur_min = analysis.get("estimated_duration_minutes", 0)
+            top_chars = ", ".join(
+                f"{c['name']} ({c['occurrences']})"
+                for c in (analysis.get("top_characters") or [])[:5]
+            )
+
+            analysis_md = (
+                "### 📊 Book Analysis\n\n"
+                "| Metric | Value |\n"
+                "|--------|-------|\n"
+                f"| **Word Count** | ~{analysis.get('total_words', 0):,} |\n"
+                f"| **Estimated Audio Duration** | ~{dur_min} min |\n"
+                f"| **Chapters Detected** | {len(chapters)} |\n"
+                f"| **Total Segments** | {total_segments} |\n"
+                f"| **Characters Detected** | {analysis.get('character_count', 0)} |\n"
+                f"| **Dialogue %** | {analysis.get('dialogue_percentage', 0):.0f}% |\n\n"
+                f"**Top Characters:** {top_chars or '—'}\n\n"
+                "> Analysis complete. Review character voice assignments in the **Voices** tab."
+            )
+
+            time_estimate = (
+                f"⏱️  **Estimated generation time:** ~{est_min} min with *{engine}*"
+            )
+            return (
+                chapter_rows,
+                analysis_md,
+                time_estimate,
+                f"✅  Parsing complete — {len(chapters)} chapters, {total_segments} segments.",
+            )
+        except Exception as exc:
+            return (
+                [],
+                f"*Error during parsing: {exc}*",
+                "",
+                f"❌  Parse failed: {exc}",
+            )
+
+    # ── Stub chapter data (fallback when pipeline not wired) ─────────────────
     chapter_rows: List[List[Any]] = [
         [1, "Prologue", 12, 3, "✅"],
         [2, "Chapter 1 — The Beginning", 45, 7, "❌"],
@@ -286,6 +391,103 @@ def generate_handler(
     ]
     chapter_rows: List[List[Any]] = []
 
+    # ── Real pipeline (injected by audiobook_creator_v7.py) ─────────────────
+    if _STAGE_GENERATE is not None and _STAGE_ASSEMBLE is not None:
+        manifest = _active_manifests.get("current")
+        if manifest is None:
+            return (
+                "\n".join(log_lines + ["❌  No parsed book found — run Parse first."]),
+                "❌  **Please parse a book first.**",
+                [],
+                None,
+            )
+
+        cancel_event = threading.Event()
+        _active_cancel_events["current"] = cancel_event
+
+        # Apply updated settings from UI
+        engine_id = "edge-tts" if "edge" in engine.lower() else "kokoro"
+        manifest["settings"]["tts_engine"] = engine_id
+        manifest["settings"]["speed_multiplier"] = speed
+        fmt = "m4b" if "m4b" in output_format.lower() else "mp3"
+        manifest["settings"]["output_format"] = fmt
+
+        # Map character voice table
+        if character_voices:
+            for row in character_voices:
+                if len(row) >= 2 and row[0]:
+                    manifest["settings"].setdefault("character_voices", {})[row[0]] = {
+                        "voice": row[1], "detected_by": "manual"
+                    }
+
+        # Map pronunciation overrides
+        if pronunciation_overrides:
+            manifest["settings"]["pronunciation_overrides"] = {
+                row[0]: row[1] for row in pronunciation_overrides
+                if len(row) >= 2 and row[0]
+            }
+
+        if bg_music_path:
+            manifest["settings"]["background_music"] = (
+                bg_music_path.name if hasattr(bg_music_path, "name") else str(bg_music_path)
+            )
+            manifest["settings"]["music_duck_db"] = bg_music_volume
+
+        progress(0.05, desc="Synthesising audio…")
+
+        def _progress_cb(stats):
+            pct = stats.get("pct_complete", 0) / 100.0
+            msg = f"Chapter: {stats.get('current_chapter', '')}  Segment {stats.get('current_segment', 0)}"
+            progress(0.05 + pct * 0.75, desc=msg)
+            log_lines.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
+
+        try:
+            manifest = _STAGE_GENERATE(manifest, cancel_event, progress_callback=_progress_cb)
+        except Exception as exc:
+            log_lines.append(f"[{time.strftime('%H:%M:%S')}] ❌  Generation error: {exc}")
+            return "\n".join(log_lines), f"❌  **Generation failed:** {exc}", [], None
+
+        if cancel_event.is_set():
+            _active_manifests["current"] = manifest
+            return (
+                "\n".join(log_lines + ["⛔  Stopped by user."]),
+                "⛔  **Generation stopped.**",
+                [],
+                None,
+            )
+
+        progress(0.82, desc="Assembling final audiobook…")
+        log_lines.append(f"[{time.strftime('%H:%M:%S')}] Assembling final audiobook…")
+
+        def _assemble_cb(msg, pct):
+            log_lines.append(f"[{time.strftime('%H:%M:%S')}] {msg}")
+            progress(0.82 + pct * 0.17, desc=msg)
+
+        try:
+            output_path = _STAGE_ASSEMBLE(manifest, progress_callback=_assemble_cb)
+        except Exception as exc:
+            log_lines.append(f"[{time.strftime('%H:%M:%S')}] ❌  Assembly error: {exc}")
+            return "\n".join(log_lines), f"❌  **Assembly failed:** {exc}", [], None
+
+        progress(1.0, desc="Done!")
+        log_lines.append(f"[{time.strftime('%H:%M:%S')}] ✅  Audiobook saved → {output_path}")
+        _stats["total_books"] += 1
+        _active_manifests["current"] = manifest
+
+        # Build chapter progress rows
+        for ch in manifest.get("chapters", []):
+            done = sum(1 for s in ch["segments"] if s.get("status") == "cached")
+            total_s = len(ch["segments"])
+            chapter_rows.append([ch["title"], "✅ Done" if done == total_s else f"{done}/{total_s}", total_s, "—"])
+
+        return (
+            "\n".join(log_lines),
+            f"✅  **Audiobook complete!**  →  `{output_path}`",
+            chapter_rows,
+            output_path,
+        )
+
+    # ── Stub fallback ────────────────────────────────────────────────────────
     chapters = chapter_data or []
     total = max(len(chapters), 1)
 
@@ -298,7 +500,7 @@ def generate_handler(
         segments = int(row[2]) if len(row) > 2 else 0
 
         progress((idx + 0.5) / total, desc=f'Generating "{title}"…')
-        time.sleep(0.15)  # stub delay — remove when pipeline is wired
+        time.sleep(0.15)  # stub delay
 
         log_lines.append(
             f"[{time.strftime('%H:%M:%S')}] ✅  {title}  ({segments} segments)"

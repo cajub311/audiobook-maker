@@ -1,0 +1,8 @@
+{
+  "comment": "Deploy the website/ folder to Vercel. See deployment instructions in README.",
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "rootDirectory": "website"
+}

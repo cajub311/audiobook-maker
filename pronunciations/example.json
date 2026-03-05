@@ -1,0 +1,6 @@
+{
+  "_comment": "Copy this file to your-book.json and add your own overrides.",
+  "_note": "Format: \"word\": \"sounds-like spelling\" — applied before TTS synthesis.",
+  "example": "eg-ZAM-pul",
+  "pronunciation": "pro-NUN-see-AY-shun"
+}
