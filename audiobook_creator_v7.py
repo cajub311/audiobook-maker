@@ -1903,10 +1903,90 @@ def resolve_source_inputs(
     return file_path, "", ""
 
 
+def collect_project_inventory() -> dict[str, dict[str, str]]:
+    inventory: dict[str, dict[str, str]] = {}
+    cloud_urls: set[str] = set()
+    for manifest_file in sorted(MANIFESTS_DIR.glob("*.json")):
+        if manifest_file.name.endswith(".bak"):
+            continue
+        try:
+            manifest = load_manifest(manifest_file)
+        except Exception:
+            continue
+        title = str(manifest.get("book", {}).get("title", manifest_file.stem) or manifest_file.stem)
+        state = str(manifest.get("runtime", {}).get("state", "unknown") or "unknown")
+        slug = slugify(title, fallback=manifest_file.stem)
+        output_path = ""
+        for ext in ("m4b", "mp3"):
+            candidate = OUTPUT_DIR / f"{slug}.{ext}"
+            if candidate.exists():
+                output_path = str(candidate)
+                break
+        cloud_url = str(manifest.get("runtime", {}).get("cloud_backup", {}).get("url", "") or "")
+        if cloud_url:
+            cloud_urls.add(cloud_url)
+        key = f"local::{manifest_file}"
+        inventory[key] = {
+            "id": key,
+            "label": f"{title} · {state} · local",
+            "title": title,
+            "state": state,
+            "manifest_path": str(manifest_file),
+            "cloud_url": cloud_url,
+            "output_path": output_path,
+            "storage": "local",
+        }
+
+    for cloud_url in sorted(cloud_urls):
+        key = f"cloud::{cloud_url}"
+        if key in inventory:
+            continue
+        inventory[key] = {
+            "id": key,
+            "label": f"{cloud_url[:44]}... · cloud",
+            "title": "Cloud backup",
+            "state": "cloud",
+            "manifest_path": "",
+            "cloud_url": cloud_url,
+            "output_path": "",
+            "storage": "cloud",
+        }
+    return inventory
+
+
+def project_meta_to_markdown(meta: Optional[dict[str, str]]) -> str:
+    if not meta:
+        return "_No project selected._"
+    lines = [
+        f"**Title:** {meta.get('title', '-')}",
+        f"**State:** {meta.get('state', '-')}",
+        f"**Storage:** {meta.get('storage', '-')}",
+    ]
+    if meta.get("manifest_path"):
+        lines.append(f"**Manifest:** `{meta['manifest_path']}`")
+    if meta.get("output_path"):
+        lines.append(f"**Output:** `{meta['output_path']}`")
+    if meta.get("cloud_url"):
+        lines.append(f"**Cloud URL:** `{meta['cloud_url']}`")
+    return "\n\n".join(lines)
+
+
 MOBILE_CSS = """
-.gradio-container {max-width: 980px !important;}
-.gr-button {min-height: 48px !important; font-size: 1rem !important;}
+.gradio-container {
+  max-width: 1100px !important;
+  background: radial-gradient(circle at 20% 20%, rgba(99, 102, 241, 0.12), transparent 45%),
+              radial-gradient(circle at 80% 10%, rgba(14, 165, 233, 0.12), transparent 35%),
+              #0b1020;
+}
+.gr-button {min-height: 48px !important; font-size: 1rem !important; border-radius: 12px !important;}
 input, textarea, select {font-size: 16px !important;}
+.glass-card {
+  backdrop-filter: blur(10px);
+  background: rgba(15, 23, 42, 0.58) !important;
+  border: 1px solid rgba(148, 163, 184, 0.25) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 10px 30px rgba(2, 6, 23, 0.35) !important;
+}
 @media (max-width: 768px) {
   .gradio-container {padding: 10px !important;}
   .gr-row {flex-direction: column !important; gap: 10px !important;}
@@ -1923,10 +2003,41 @@ def build_ui():
 
     ensure_runtime_dirs()
     cancel_event = threading.Event()
+    theme = (
+        gr.themes.Soft(
+            primary_hue="indigo",
+            secondary_hue="slate",
+            neutral_hue="slate",
+            radius_size=gr.themes.sizes.radius_lg,
+            text_size=gr.themes.sizes.text_md,
+        ).set(
+            body_background_fill="#0b1020",
+            block_background_fill="rgba(15, 23, 42, 0.55)",
+            block_border_color="rgba(148, 163, 184, 0.22)",
+            block_shadow="0 14px 35px rgba(2, 6, 23, 0.40)",
+            panel_background_fill="rgba(15, 23, 42, 0.70)",
+            input_background_fill="rgba(15, 23, 42, 0.65)",
+            button_primary_background_fill="#4f46e5",
+            button_primary_background_fill_hover="#6366f1",
+            button_primary_text_color="#f8fafc",
+        )
+    )
 
-    with gr.Blocks(title="Audiobook Creator V7", theme=gr.themes.Soft(), css=MOBILE_CSS) as app:
+    with gr.Blocks(title="Audiobook Creator V7", theme=theme, css=MOBILE_CSS) as app:
         manifest_path_state = gr.State("")
         cloud_url_state = gr.State("")
+        project_map_state = gr.State({})
+
+        with gr.Sidebar(open=True):
+            gr.Markdown("## My Projects")
+            gr.Markdown("Load saved manifests from local disk or cloud backups.")
+            project_selector = gr.Dropdown(label="Saved Projects", choices=[], value=None)
+            project_details = gr.Markdown("_No project selected._")
+            with gr.Row():
+                refresh_projects_btn = gr.Button("Refresh", variant="secondary")
+                load_project_btn = gr.Button("Load", variant="primary")
+            delete_project_btn = gr.Button("Delete Selected", variant="stop")
+            project_action_status = gr.Markdown("")
 
         with gr.Tab("Easy Mobile Mode"):
             gr.Markdown("### One-tap audiobook mode (phone-friendly)")
@@ -2031,6 +2142,123 @@ def build_ui():
                 gr.Dropdown(choices=voice_choices, value=default_n),
                 gr.Dropdown(choices=voice_choices, value=default_d),
             )
+
+        def on_refresh_projects(selected_project: Optional[str] = None):
+            inventory = collect_project_inventory()
+            choices = list(inventory.keys())
+            selected = selected_project if selected_project in inventory else (choices[0] if choices else None)
+            details = project_meta_to_markdown(inventory.get(selected))
+            return gr.Dropdown(choices=choices, value=selected), inventory, details, ""
+
+        def on_project_select(project_id: Optional[str], project_map: dict[str, dict[str, str]]):
+            if not project_id:
+                return "_No project selected._"
+            return project_meta_to_markdown((project_map or {}).get(project_id))
+
+        def on_load_project(project_id: Optional[str], project_map: dict[str, dict[str, str]]):
+            if not project_id:
+                return (
+                    "Select a project first.",
+                    "",
+                    "_No data yet._",
+                    [],
+                    "",
+                    "",
+                    "",
+                    gr.Textbox(value=""),
+                    "_No project selected._",
+                )
+            meta = (project_map or {}).get(project_id)
+            if not meta:
+                return (
+                    "Project entry not found. Press Refresh.",
+                    "",
+                    "_No data yet._",
+                    [],
+                    "",
+                    "",
+                    "",
+                    gr.Textbox(value=""),
+                    "_No project selected._",
+                )
+            try:
+                if meta.get("storage") == "cloud":
+                    cloud_url = str(meta.get("cloud_url", "") or "")
+                    manifest = load_manifest_from_free_cloud(cloud_url)
+                    title = manifest.get("book", {}).get("title", "Cloud_Manifest")
+                    manifest_path = str(MANIFESTS_DIR / f"{slugify(title)}_cloud_manifest.json")
+                    save_manifest(manifest, manifest_path)
+                else:
+                    manifest_path = str(meta.get("manifest_path", "") or "")
+                    manifest = load_manifest(manifest_path)
+                    cloud_url = str(manifest.get("runtime", {}).get("cloud_backup", {}).get("url", "") or "")
+                chapter_rows = build_chapter_table(manifest)
+                char_rows = build_character_table(manifest)
+                estimate = int(manifest.get("progress", {}).get("estimated_remaining_seconds", 0))
+                parse_msg = (
+                    f"Loaded **{manifest.get('book', {}).get('title', 'project')}** with "
+                    f"**{manifest.get('progress', {}).get('total_segments', 0)}** segments."
+                )
+                details = project_meta_to_markdown(
+                    {
+                        "title": str(manifest.get("book", {}).get("title", "-")),
+                        "state": str(manifest.get("runtime", {}).get("state", "-")),
+                        "storage": meta.get("storage", "local"),
+                        "manifest_path": manifest_path,
+                        "output_path": meta.get("output_path", ""),
+                        "cloud_url": cloud_url,
+                    }
+                )
+                return (
+                    "Project loaded.",
+                    parse_msg,
+                    rows_to_markdown(["Chapter", "Segments", "Characters Found", "Cache Status"], chapter_rows),
+                    char_rows,
+                    f"Estimated generation time: **~{estimate // 60} min {estimate % 60}s**",
+                    manifest_path,
+                    cloud_url,
+                    gr.Textbox(value=cloud_url),
+                    details,
+                )
+            except Exception as exc:
+                return (
+                    f"Failed to load project: {exc}",
+                    "",
+                    "_No data yet._",
+                    [],
+                    "",
+                    "",
+                    "",
+                    gr.Textbox(value=""),
+                    project_meta_to_markdown(meta),
+                )
+
+        def on_delete_project(project_id: Optional[str], project_map: dict[str, dict[str, str]]):
+            if not project_id:
+                return "Select a project first.", gr.Dropdown(), project_map, "_No project selected._"
+            meta = (project_map or {}).get(project_id)
+            if not meta:
+                return "Project entry not found. Press Refresh.", gr.Dropdown(), project_map, "_No project selected._"
+            try:
+                if meta.get("storage") == "cloud":
+                    return (
+                        "Cloud backups are immutable on JSONBlob. Remove local manifests instead.",
+                        gr.Dropdown(),
+                        project_map,
+                        project_meta_to_markdown(meta),
+                    )
+                manifest_path = Path(str(meta.get("manifest_path", "")))
+                with contextlib.suppress(Exception):
+                    manifest_path.unlink()
+                with contextlib.suppress(Exception):
+                    manifest_path.with_suffix(manifest_path.suffix + ".bak").unlink()
+                inventory = collect_project_inventory()
+                choices = list(inventory.keys())
+                selected = choices[0] if choices else None
+                details = project_meta_to_markdown(inventory.get(selected))
+                return "Project deleted.", gr.Dropdown(choices=choices, value=selected), inventory, details
+            except Exception as exc:
+                return f"Delete failed: {exc}", gr.Dropdown(), project_map, project_meta_to_markdown(meta)
 
         def on_preview(engine_label: str, voice: str):
             if not voice:
@@ -2146,7 +2374,7 @@ def build_ui():
             progress=gr.Progress(),
         ):
             if not manifest_path:
-                return ("Parse a book first.", [], None, None)
+                return ("Parse a book first.", "_No data yet._", None, None)
             cancel_event.clear()
             try:
                 manifest = load_manifest(manifest_path)
@@ -2443,6 +2671,37 @@ def build_ui():
             inputs=[engine_select],
             outputs=[narrator_voice, dialogue_voice],
         )
+        app.load(
+            on_refresh_projects,
+            inputs=[project_selector],
+            outputs=[project_selector, project_map_state, project_details, project_action_status],
+        )
+        refresh_projects_btn.click(
+            on_refresh_projects,
+            inputs=[project_selector],
+            outputs=[project_selector, project_map_state, project_details, project_action_status],
+        )
+        project_selector.change(on_project_select, inputs=[project_selector, project_map_state], outputs=[project_details])
+        load_project_btn.click(
+            on_load_project,
+            inputs=[project_selector, project_map_state],
+            outputs=[
+                project_action_status,
+                parse_status,
+                chapter_list_md,
+                character_table,
+                time_estimate,
+                manifest_path_state,
+                cloud_url_state,
+                cloud_manifest_url,
+                project_details,
+            ],
+        )
+        delete_project_btn.click(
+            on_delete_project,
+            inputs=[project_selector, project_map_state],
+            outputs=[project_action_status, project_selector, project_map_state, project_details],
+        )
         input_mode.change(on_input_mode_change, inputs=[input_mode], outputs=[file_input, url_input, text_input])
         quick_input_mode.change(
             on_input_mode_change,
@@ -2459,7 +2718,7 @@ def build_ui():
             inputs=[engine_select, dialogue_voice],
             outputs=[dialogue_audio],
         )
-        parse_btn.click(
+        parse_evt = parse_btn.click(
             on_parse,
             inputs=[
                 input_mode,
@@ -2487,6 +2746,11 @@ def build_ui():
                 cloud_manifest_url,
             ],
         )
+        parse_evt.then(
+            on_refresh_projects,
+            inputs=[project_selector],
+            outputs=[project_selector, project_map_state, project_details, project_action_status],
+        )
         cancel_btn.click(on_cancel, inputs=[manifest_path_state], outputs=[progress_text])
         generate_btn.click(
             on_generate,
@@ -2510,7 +2774,7 @@ def build_ui():
             ],
             outputs=[progress_text, chapter_progress_md, audio_player, download_file],
         )
-        quick_generate_btn.click(
+        quick_evt = quick_generate_btn.click(
             on_quick_generate,
             inputs=[
                 quick_input_mode,
@@ -2522,10 +2786,15 @@ def build_ui():
             ],
             outputs=[quick_status, quick_player, quick_download, quick_cloud_url],
         )
+        quick_evt.then(
+            on_refresh_projects,
+            inputs=[project_selector],
+            outputs=[project_selector, project_map_state, project_details, project_action_status],
+        )
         quick_cancel_btn.click(on_quick_cancel, outputs=[quick_status])
         refresh_preflight_btn.click(on_refresh_preflight, outputs=[preflight_table])
         backup_cloud_btn.click(on_cloud_backup, inputs=[manifest_path_state], outputs=[cloud_status, cloud_url_state, cloud_manifest_url])
-        restore_cloud_btn.click(
+        restore_evt = restore_cloud_btn.click(
             on_cloud_restore,
             inputs=[cloud_manifest_url],
             outputs=[
@@ -2538,6 +2807,11 @@ def build_ui():
                 cloud_url_state,
                 cloud_manifest_url,
             ],
+        )
+        restore_evt.then(
+            on_refresh_projects,
+            inputs=[project_selector],
+            outputs=[project_selector, project_map_state, project_details, project_action_status],
         )
 
     return app
