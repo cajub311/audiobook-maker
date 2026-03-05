@@ -1857,6 +1857,34 @@ def rows_to_markdown(headers: list[str], rows: list[list[Any]]) -> str:
     return "\n".join([head, sep] + body)
 
 
+def format_eta(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    minutes, secs = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def runtime_state_badge(state: str, detail: str = "") -> str:
+    state_norm = (state or "idle").lower()
+    palette = {
+        "idle": ("⚪", "Idle"),
+        "parsed": ("🔵", "Parsed"),
+        "generating": ("🟣", "Generating"),
+        "generated": ("🟢", "Generated"),
+        "assembling": ("🟠", "Assembling"),
+        "cancel_requested": ("🟡", "Cancel Requested"),
+        "cancelled": ("🟡", "Cancelled"),
+        "failed": ("🔴", "Failed"),
+        "completed": ("✅", "Completed"),
+    }
+    icon, label = palette.get(state_norm, ("⚪", state_norm.title()))
+    if detail:
+        return f"{icon} **{label}** · {detail}"
+    return f"{icon} **{label}**"
+
+
 def parse_pronunciation_table(rows: Any) -> dict[str, str]:
     overrides: dict[str, str] = {}
     if not rows:
@@ -2194,13 +2222,14 @@ def build_ui():
         with gr.Tab("Generate"):
             with gr.Row():
                 generate_btn = gr.Button("Generate Audiobook", variant="primary", scale=2)
-                cancel_btn = gr.Button("Cancel", variant="stop", scale=1)
+                cancel_btn = gr.Button("Cancel Generation", variant="stop", scale=1)
             output_format = gr.Radio(["M4B (Chaptered)", "MP3"], value="M4B (Chaptered)", label="Output Format")
             with gr.Accordion("Advanced generation options", open=False):
                 normalize_check = gr.Checkbox(label="Normalize loudness (-19 LUFS)", value=True)
                 low_memory_mode = gr.Checkbox(label="Low-memory mode (best for free cloud machines)", value=True)
                 cache_size_mb = gr.Slider(128, 4096, value=500, step=64, label="Cache size limit (MB)")
                 free_cloud_memory = gr.Checkbox(label="Enable free cloud memory backup (JSONBlob)", value=False)
+            generation_badge = gr.Markdown(runtime_state_badge("idle", "Waiting to start"))
             progress_text = gr.Markdown("")
             chapter_progress_md = gr.Markdown("")
 
@@ -2260,6 +2289,7 @@ def build_ui():
                     "",
                     "",
                     gr.Textbox(value=""),
+                    runtime_state_badge("idle", "No project selected"),
                     "_No project selected._",
                 )
             meta = (project_map or {}).get(project_id)
@@ -2273,6 +2303,7 @@ def build_ui():
                     "",
                     "",
                     gr.Textbox(value=""),
+                    runtime_state_badge("idle", "Project not found"),
                     "_No project selected._",
                 )
             try:
@@ -2312,6 +2343,7 @@ def build_ui():
                     manifest_path,
                     cloud_url,
                     gr.Textbox(value=cloud_url),
+                    runtime_state_badge(str(manifest.get("runtime", {}).get("state", "idle")), "Project loaded"),
                     details,
                 )
             except Exception as exc:
@@ -2324,6 +2356,7 @@ def build_ui():
                     "",
                     "",
                     gr.Textbox(value=""),
+                    runtime_state_badge("failed", "Load failed"),
                     project_meta_to_markdown(meta),
                 )
 
@@ -2442,7 +2475,10 @@ def build_ui():
                 with contextlib.suppress(Exception):
                     manifest = load_manifest(manifest_path)
                     update_run_state(manifest, "cancel_requested", "User requested cancellation", manifest_path)
-            return "Cancellation requested. Current segment(s) will finish then stop."
+            return (
+                "Cancellation requested. Current segment(s) will finish then stop.",
+                runtime_state_badge("cancel_requested", "Stopping safely..."),
+            )
 
         def on_quick_cancel():
             cancel_event.set()
@@ -2468,7 +2504,13 @@ def build_ui():
             progress=gr.Progress(),
         ):
             if not manifest_path:
-                return ("Parse a book first.", "_No data yet._", None, None)
+                return (
+                    "Parse a book first.",
+                    "_No data yet._",
+                    None,
+                    None,
+                    runtime_state_badge("idle", "No manifest loaded"),
+                )
             cancel_event.clear()
             try:
                 manifest = load_manifest(manifest_path)
@@ -2519,9 +2561,19 @@ def build_ui():
                 update_run_state(manifest, "idle", "Ready to generate", manifest_path=None)
                 save_manifest(manifest, manifest_path)
 
+                run_started = time.time()
+
                 def progress_cb(done: int, total: int, desc: str) -> None:
                     ratio = done / total if total else 1.0
-                    progress(ratio, desc=desc)
+                    elapsed = max(0.001, time.time() - run_started)
+                    rate = done / elapsed if done > 0 else 0.0
+                    remaining = max(0, total - done)
+                    eta = (remaining / rate) if rate > 0 else 0.0
+                    rich_desc = (
+                        f"Segment {done}/{total} · ETA {format_eta(eta)}"
+                        + (f" · {desc}" if desc else "")
+                    )
+                    progress(ratio, desc=rich_desc)
 
                 progress(0, desc="Generating segment audio")
                 manifest = run_coro_sync(
@@ -2540,6 +2592,7 @@ def build_ui():
                         rows_to_markdown(["Chapter", "Status", "Segments Done"], progress_rows),
                         None,
                         None,
+                        runtime_state_badge("cancelled", "Generation cancelled"),
                     )
 
                 progress(0.92, desc="Assembling final audiobook")
@@ -2563,11 +2616,18 @@ def build_ui():
                     rows_to_markdown(["Chapter", "Status", "Segments Done"], progress_rows),
                     output_path,
                     output_path,
+                    runtime_state_badge("completed", "Output ready"),
                 )
             except Exception as exc:
                 if "manifest" in locals():
                     update_run_state(manifest, "failed", f"Generation failed: {exc}", manifest_path)
-                return (f"Generation failed: {exc}", "_No data yet._", None, None)
+                return (
+                    f"Generation failed: {exc}",
+                    "_No data yet._",
+                    None,
+                    None,
+                    runtime_state_badge("failed", "Check logs and retry"),
+                )
 
         def on_refresh_preflight():
             return run_preflight_checks()
@@ -2804,6 +2864,7 @@ def build_ui():
                 manifest_path_state,
                 cloud_url_state,
                 cloud_manifest_url,
+                generation_badge,
                 project_details,
             ],
         )
@@ -2861,7 +2922,7 @@ def build_ui():
             inputs=[project_selector],
             outputs=[project_selector, project_map_state, project_details, project_action_status],
         )
-        cancel_btn.click(on_cancel, inputs=[manifest_path_state], outputs=[progress_text])
+        cancel_btn.click(on_cancel, inputs=[manifest_path_state], outputs=[progress_text, generation_badge])
         generate_btn.click(
             on_generate,
             inputs=[
@@ -2882,7 +2943,7 @@ def build_ui():
                 free_cloud_memory,
                 cloud_manifest_url,
             ],
-            outputs=[progress_text, chapter_progress_md, audio_player, download_file],
+            outputs=[progress_text, chapter_progress_md, audio_player, download_file, generation_badge],
         )
         quick_evt = quick_generate_btn.click(
             on_quick_generate,
