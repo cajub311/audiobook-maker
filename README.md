@@ -30,10 +30,30 @@ Then open: `http://localhost:7860`
 ## Reliability Improvements Included
 
 - Atomic JSON writes for manifest/cache index updates
+- Automatic manifest backup recovery from `*.bak`
+- Cache validation (duration/checksum/size) with stale entry cleanup
+- Bounded-queue generation workers for low-memory machines
+- Assembly checkpoints for safer resume after interruptions
+- FFmpeg timeout/retry wrapper for more robust long runs
+- Explicit run-state tracking (`idle`, `generating`, `assembling`, `cancelled`, `failed`, `completed`)
+- System preflight diagnostics tab in UI
 - Runtime output folders auto-created
 - Optional dependency fallbacks (graceful degradation)
 - Basic cancel handling during generation
 - `.gitignore` added for generated runtime artifacts
+
+## Free Cloud Memory (optional)
+
+The app now supports **free anonymous cloud manifest memory** using JSONBlob:
+
+- In the UI, enable **"Enable free cloud memory backup (JSONBlob)"**
+- Use the **System** tab to:
+  - Backup current manifest to cloud
+  - Restore a manifest from a cloud URL
+
+This stores JSON manifest state remotely, so you can resume from another machine without paid infrastructure.
+
+> Note: this is for manifest/progress memory, not audio-file hosting.
 
 ## Vercel Website Launcher
 

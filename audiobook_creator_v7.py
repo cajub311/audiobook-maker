@@ -33,12 +33,15 @@ from urllib.request import Request, urlopen
 
 
 APP_VERSION = "7.0"
+CACHE_KEY_SCHEMA_VERSION = 2
 BASE_DIR = Path(__file__).resolve().parent
 CACHE_DIR = BASE_DIR / "tts_cache"
 MANIFESTS_DIR = BASE_DIR / "manifests"
 PRONUNCIATIONS_DIR = BASE_DIR / "pronunciations"
 TEMP_DIR = BASE_DIR / "temp"
 OUTPUT_DIR = BASE_DIR / "output"
+DEFAULT_FFMPEG_TIMEOUT_S = 240
+DEFAULT_FFMPEG_RETRIES = 2
 
 
 def ensure_runtime_dirs() -> None:
@@ -56,8 +59,28 @@ def now_iso() -> str:
     return datetime.utcnow().replace(microsecond=0).isoformat()
 
 
-def run_command(command: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=check, capture_output=True, text=True)
+def run_command(
+    command: list[str],
+    check: bool = True,
+    timeout_s: Optional[int] = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(command, check=check, capture_output=True, text=True, timeout=timeout_s)
+
+
+def run_ffmpeg(
+    command: list[str],
+    timeout_s: int = DEFAULT_FFMPEG_TIMEOUT_S,
+    retries: int = DEFAULT_FFMPEG_RETRIES,
+) -> subprocess.CompletedProcess[str]:
+    last_error: Optional[Exception] = None
+    for attempt in range(retries + 1):
+        try:
+            return run_command(command, check=True, timeout_s=timeout_s)
+        except Exception as exc:
+            last_error = exc
+            if attempt < retries:
+                time.sleep(0.5 * (attempt + 1))
+    raise RuntimeError(f"FFmpeg command failed after retries: {' '.join(command)} ({last_error})")
 
 
 def ffmpeg_exists() -> bool:
@@ -94,8 +117,12 @@ def get_duration_ffprobe(path: str) -> float:
         return 0.0
 
 
-def atomic_json_write(path: Path, payload: dict[str, Any]) -> None:
+def atomic_json_write(path: Path, payload: dict[str, Any], keep_backup: bool = True) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if keep_backup and path.exists():
+        backup_path = path.with_suffix(path.suffix + ".bak")
+        with contextlib.suppress(Exception):
+            shutil.copy2(path, backup_path)
     with tempfile.NamedTemporaryFile("w", delete=False, dir=str(path.parent), encoding="utf-8") as tmp:
         json.dump(payload, tmp, indent=2, ensure_ascii=False)
         tmp.flush()
@@ -105,12 +132,63 @@ def atomic_json_write(path: Path, payload: dict[str, Any]) -> None:
 
 
 def save_manifest(manifest: dict[str, Any], manifest_path: str | Path) -> None:
-    atomic_json_write(Path(manifest_path), manifest)
+    path = Path(manifest_path)
+    atomic_json_write(path, manifest, keep_backup=True)
+    backup_path = path.with_suffix(path.suffix + ".bak")
+    with contextlib.suppress(Exception):
+        shutil.copy2(path, backup_path)
 
 
 def load_manifest(manifest_path: str | Path) -> dict[str, Any]:
-    with open(manifest_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    path = Path(manifest_path)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        backup_path = path.with_suffix(path.suffix + ".bak")
+        if backup_path.exists():
+            with open(backup_path, "r", encoding="utf-8") as f:
+                recovered = json.load(f)
+            with contextlib.suppress(Exception):
+                atomic_json_write(path, recovered, keep_backup=False)
+            return recovered
+        raise
+
+
+def hash_dict(payload: dict[str, Any]) -> str:
+    normalized = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    return hashlib.md5(normalized.encode("utf-8")).hexdigest()
+
+
+def file_sha256(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def advisory_file_lock(lock_path: Path):
+    @contextlib.contextmanager
+    def _lock():
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_path, "a+", encoding="utf-8") as lock_file:
+            try:
+                import fcntl  # type: ignore
+
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                # Non-posix fallback; best-effort lock.
+                yield
+
+    return _lock()
 
 
 def estimate_generation_seconds(total_chars: int, engine_name: str) -> int:
@@ -302,31 +380,74 @@ class AudioCache:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.max_size_bytes = max_size_mb * 1024 * 1024
         self.index_path = self.cache_dir / "cache_index.json"
+        self.lock_path = self.cache_dir / ".cache_index.lock"
         self.index = self._load_index()
+        self.repair_index()
 
     def _load_index(self) -> dict[str, dict[str, Any]]:
-        if not self.index_path.exists():
-            return {}
-        try:
-            with open(self.index_path, "r", encoding="utf-8") as f:
-                payload = json.load(f)
-            return payload if isinstance(payload, dict) else {}
-        except Exception:
-            return {}
+        with advisory_file_lock(self.lock_path):
+            if not self.index_path.exists():
+                return {}
+            try:
+                with open(self.index_path, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
+                return payload if isinstance(payload, dict) else {}
+            except Exception:
+                backup = self.index_path.with_suffix(".json.bak")
+                if backup.exists():
+                    with open(backup, "r", encoding="utf-8") as f:
+                        payload = json.load(f)
+                    return payload if isinstance(payload, dict) else {}
+                return {}
 
     def _save_index(self) -> None:
-        atomic_json_write(self.index_path, self.index)
+        with advisory_file_lock(self.lock_path):
+            atomic_json_write(self.index_path, self.index, keep_backup=True)
 
-    def _make_key(self, text: str, voice: str, engine: str, speed: float) -> str:
-        return hashlib.md5(f"{text}|{voice}|{engine}|{speed}".encode("utf-8")).hexdigest()
+    def _make_key(
+        self,
+        text: str,
+        voice: str,
+        engine: str,
+        speed: float,
+        pronunciation_hash: str = "",
+        speed_mode: str = "native",
+    ) -> str:
+        effective_speed = speed if speed_mode == "native" else 1.0
+        material = f"v={CACHE_KEY_SCHEMA_VERSION}|{text}|{voice}|{engine}|{effective_speed}|{pronunciation_hash}|{speed_mode}"
+        return hashlib.md5(material.encode("utf-8")).hexdigest()
 
-    def get(self, text: str, voice: str, engine: str, speed: float = 1.0) -> Optional[str]:
-        key = self._make_key(text, voice, engine, speed)
+    def _is_cache_entry_valid(self, path: Path, entry: dict[str, Any]) -> bool:
+        if not path.exists() or path.stat().st_size <= 0:
+            return False
+        expected_duration = float(entry.get("duration", 0.0) or 0.0)
+        actual_duration = get_duration_ffprobe(str(path))
+        if actual_duration <= 0:
+            return False
+        if expected_duration > 0 and abs(actual_duration - expected_duration) > 0.75:
+            return False
+        expected_sha = str(entry.get("sha256", "") or "")
+        if expected_sha:
+            with contextlib.suppress(Exception):
+                if file_sha256(path) != expected_sha:
+                    return False
+        return True
+
+    def get(
+        self,
+        text: str,
+        voice: str,
+        engine: str,
+        speed: float = 1.0,
+        pronunciation_hash: str = "",
+        speed_mode: str = "native",
+    ) -> Optional[str]:
+        key = self._make_key(text, voice, engine, speed, pronunciation_hash=pronunciation_hash, speed_mode=speed_mode)
         entry = self.index.get(key)
         if not entry:
             return None
         path = self.cache_dir / entry.get("filename", "")
-        if not path.exists():
+        if not self._is_cache_entry_valid(path, entry):
             self.index.pop(key, None)
             self._save_index()
             return None
@@ -342,20 +463,27 @@ class AudioCache:
         speed: float,
         audio_path: str,
         duration: float,
+        pronunciation_hash: str = "",
+        speed_mode: str = "native",
     ) -> str:
-        key = self._make_key(text, voice, engine, speed)
+        key = self._make_key(text, voice, engine, speed, pronunciation_hash=pronunciation_hash, speed_mode=speed_mode)
         ext = Path(audio_path).suffix or ".mp3"
         cache_filename = f"{key}{ext}"
         cache_path = self.cache_dir / cache_filename
         if Path(audio_path).resolve() != cache_path.resolve():
             shutil.copy2(audio_path, cache_path)
         size = cache_path.stat().st_size if cache_path.exists() else 0
+        sha = file_sha256(cache_path) if cache_path.exists() else ""
         self.index[key] = {
             "filename": cache_filename,
             "voice": voice,
             "engine": engine,
             "duration": float(duration),
             "size_bytes": size,
+            "sha256": sha,
+            "key_schema_version": CACHE_KEY_SCHEMA_VERSION,
+            "pronunciation_hash": pronunciation_hash,
+            "speed_mode": speed_mode,
             "created": time.time(),
             "last_accessed": time.time(),
         }
@@ -390,6 +518,37 @@ class AudioCache:
                 "percent": round((cached / total) * 100) if total else 0,
             }
         return stats
+
+    def repair_index(self) -> dict[str, int]:
+        removed_stale = 0
+        seen_files: set[str] = set()
+        for key in list(self.index.keys()):
+            entry = self.index.get(key, {})
+            filename = str(entry.get("filename", "") or "")
+            if not filename:
+                self.index.pop(key, None)
+                removed_stale += 1
+                continue
+            seen_files.add(filename)
+            path = self.cache_dir / filename
+            if not self._is_cache_entry_valid(path, entry):
+                with contextlib.suppress(Exception):
+                    if path.exists():
+                        path.unlink()
+                self.index.pop(key, None)
+                removed_stale += 1
+
+        orphaned = 0
+        for file_path in self.cache_dir.iterdir():
+            if not file_path.is_file():
+                continue
+            if file_path.name in ("cache_index.json", "cache_index.json.bak", ".cache_index.lock"):
+                continue
+            if file_path.name not in seen_files:
+                orphaned += 1
+                # Keep unknown files, but mark metadata so users can clean manually.
+        self._save_index()
+        return {"removed_stale": removed_stale, "orphaned_files": orphaned}
 
 
 class PronunciationDict:
@@ -821,6 +980,64 @@ def extract_source_chapters(
     return chapters, {"title": path.stem, "author": "Unknown"}, str(path), "text"
 
 
+def run_preflight_checks() -> list[list[str]]:
+    checks: list[list[str]] = []
+    checks.append(["FFmpeg", "OK" if shutil.which("ffmpeg") else "Missing", "Required for assembly"])
+    checks.append(["FFprobe", "OK" if shutil.which("ffprobe") else "Missing", "Required for duration/validation"])
+    checks.append(["edge-tts", "OK" if _module_exists("edge_tts") else "Optional", "Cloud TTS engine"])
+    checks.append(["kokoro-onnx", "OK" if _module_exists("kokoro_onnx") else "Optional", "Offline TTS engine"])
+    checks.append(["spacy", "OK" if _module_exists("spacy") else "Optional", "Dialogue attribution fallback"])
+    checks.append(["spacy model", "OK" if _spacy_model_exists() else "Optional", "en_core_web_sm"])
+    disk_mb = shutil.disk_usage(str(BASE_DIR)).free // (1024 * 1024)
+    checks.append(["Free disk", "OK" if disk_mb > 1024 else "Low", f"{disk_mb} MB available"])
+    checks.append(["Free cloud memory", "OK", "JSONBlob anonymous manifest backup is supported"])
+    return checks
+
+
+def _module_exists(module_name: str) -> bool:
+    try:
+        __import__(module_name)
+        return True
+    except Exception:
+        return False
+
+
+def _spacy_model_exists() -> bool:
+    try:
+        import spacy  # type: ignore
+
+        spacy.load("en_core_web_sm")
+        return True
+    except Exception:
+        return False
+
+
+def upload_manifest_to_free_cloud(manifest: dict[str, Any]) -> str:
+    data = json.dumps(manifest, ensure_ascii=False).encode("utf-8")
+    req = Request(
+        "https://jsonblob.com/api/jsonBlob",
+        data=data,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    with urlopen(req, timeout=20) as response:
+        location = response.headers.get("Location", "")
+    if not location:
+        raise RuntimeError("Cloud backup failed: missing location header.")
+    if location.startswith("/"):
+        return f"https://jsonblob.com{location}"
+    return location
+
+
+def load_manifest_from_free_cloud(url: str) -> dict[str, Any]:
+    with urlopen(url.strip(), timeout=20) as response:
+        payload = response.read().decode("utf-8")
+    data = json.loads(payload)
+    if not isinstance(data, dict):
+        raise RuntimeError("Cloud manifest payload is not a JSON object.")
+    return data
+
+
 def infer_speaker_for_span(
     span_start: int,
     span_end: int,
@@ -844,6 +1061,20 @@ def infer_speaker_for_span(
     return "narrator"
 
 
+def update_run_state(
+    manifest: dict[str, Any],
+    state: str,
+    message: str = "",
+    manifest_path: Optional[str] = None,
+) -> None:
+    runtime = manifest.setdefault("runtime", {})
+    runtime["state"] = state
+    runtime["message"] = message
+    runtime["updated_at"] = now_iso()
+    if manifest_path:
+        save_manifest(manifest, manifest_path)
+
+
 def build_manifest(settings: dict[str, Any], chapters: list[dict[str, Any]], book: dict[str, Any]) -> dict[str, Any]:
     total_segments = sum(len(ch.get("segments", [])) for ch in chapters)
     completed_segments = sum(
@@ -862,6 +1093,19 @@ def build_manifest(settings: dict[str, Any], chapters: list[dict[str, Any]], boo
             "generation_started": None,
             "estimated_remaining_seconds": 0,
         },
+        "runtime": {
+            "state": "idle",
+            "message": "",
+            "updated_at": now_iso(),
+            "assembly": {
+                "concat_done": False,
+                "music_mixed": False,
+                "speed_adjusted": False,
+                "normalized": False,
+                "output_done": False,
+            },
+            "cloud_backup": {"enabled": False, "url": ""},
+        },
     }
 
 
@@ -877,14 +1121,22 @@ def stage_parse(
     narrator_voice = settings.get("narrator_voice", "en-US-GuyNeural")
     dialogue_voice = settings.get("dialogue_voice", "en-US-JennyNeural")
     speed = float(settings.get("speed_multiplier", 1.0))
+    speed_mode = str(settings.get("speed_mode", "native"))
     settings.setdefault("character_voices", {})
     settings.setdefault("pronunciation_overrides", {})
     settings.setdefault("background_music", None)
     settings.setdefault("music_duck_db", -15)
     settings.setdefault("output_format", "m4b")
+    settings.setdefault("speed_mode", speed_mode)
+    settings.setdefault("max_queue_size", 32)
+    settings.setdefault("cache_max_size_mb", 500)
+    settings.setdefault("enable_free_cloud_memory", False)
+    settings.setdefault("free_cloud_manifest_url", "")
+    settings.setdefault("cache_key_schema_version", CACHE_KEY_SCHEMA_VERSION)
 
     source_chapters, meta, source_ref, source_type = extract_source_chapters(input_path, url, raw_text)
-    cache = AudioCache()
+    cache = AudioCache(max_size_mb=int(settings.get("cache_max_size_mb", 500)))
+    pronunciation_hash = hash_dict(settings.get("pronunciation_overrides", {}))
 
     manifest_chapters: list[dict[str, Any]] = []
     character_occurrences: dict[str, int] = {}
@@ -937,7 +1189,14 @@ def stage_parse(
                     voice = narrator_voice
 
                 text_hash = hashlib.md5(f"{chunk}|{voice}|{engine_name}|{speed}".encode("utf-8")).hexdigest()
-                cached_file = cache.get(chunk, voice, engine_name, speed=speed)
+                cached_file = cache.get(
+                    chunk,
+                    voice,
+                    engine_name,
+                    speed=speed,
+                    pronunciation_hash=pronunciation_hash,
+                    speed_mode=speed_mode,
+                )
                 status = "cached" if cached_file else "pending"
                 duration = get_duration_ffprobe(cached_file) if cached_file else None
                 scene_after = any(abs(p - abs_end) < 4 for p in scene_break_positions)
@@ -982,9 +1241,12 @@ def stage_parse(
     )
     manifest["progress"]["estimated_remaining_seconds"] = estimate_generation_seconds(total_chars, engine_name)
     manifest["character_occurrences"] = character_occurrences
+    manifest["runtime"]["cloud_backup"]["enabled"] = bool(settings.get("enable_free_cloud_memory", False))
+    manifest["runtime"]["cloud_backup"]["url"] = str(settings.get("free_cloud_manifest_url", "") or "")
 
     manifest_name = f"{slugify(book_title)}_manifest.json"
     manifest_path = str(MANIFESTS_DIR / manifest_name)
+    update_run_state(manifest, "parsed", "Parse completed", manifest_path=None)
     save_manifest(manifest, manifest_path)
     return manifest, manifest_path
 
@@ -999,9 +1261,13 @@ async def stage_generate(
     settings = manifest.get("settings", {})
     engine_name = settings.get("tts_engine", "edge-tts")
     engine = create_tts_engine(engine_name)
-    cache = AudioCache()
+    cache = AudioCache(max_size_mb=int(settings.get("cache_max_size_mb", 500)))
     pronunciation = PronunciationDict(settings.get("pronunciation_overrides", {}))
     speed = float(settings.get("speed_multiplier", 1.0))
+    speed_mode = str(settings.get("speed_mode", "native"))
+    pronunciation_hash = hash_dict(settings.get("pronunciation_overrides", {}))
+    max_queue_size = max(4, int(settings.get("max_queue_size", 32)))
+    max_workers = min(engine.max_concurrent, max(1, int(settings.get("max_concurrent", engine.max_concurrent))))
 
     pending: list[tuple[int, int]] = []
     for c_idx, chapter in enumerate(manifest.get("chapters", [])):
@@ -1012,14 +1278,16 @@ async def stage_generate(
     total = len(pending)
     done = 0
     manifest["progress"]["generation_started"] = manifest["progress"].get("generation_started") or now_iso()
+    update_run_state(manifest, "generating", "Generating segment audio", manifest_path)
 
     if total == 0:
         if progress_callback:
             progress_callback(1, 1, "All segments already cached.")
+        update_run_state(manifest, "completed", "All segments already cached", manifest_path)
         return manifest
 
-    sem = asyncio.Semaphore(max(1, int(settings.get("max_concurrent", engine.max_concurrent))))
     lock = asyncio.Lock()
+    queue: asyncio.Queue[Optional[tuple[int, int]]] = asyncio.Queue(maxsize=max_queue_size)
 
     async def process_one(ch_idx: int, seg_idx: int) -> None:
         nonlocal done
@@ -1031,8 +1299,16 @@ async def stage_generate(
         speaker = segment.get("speaker", "narrator")
         voice = segment.get("voice") or settings.get("narrator_voice", "en-US-GuyNeural")
         transformed_text = pronunciation.apply(text)
+        tts_speed = speed if speed_mode == "native" else 1.0
         try:
-            cached = cache.get(transformed_text, voice, engine_name, speed=speed)
+            cached = cache.get(
+                transformed_text,
+                voice,
+                engine_name,
+                speed=tts_speed,
+                pronunciation_hash=pronunciation_hash,
+                speed_mode=speed_mode,
+            )
             if cached:
                 duration = get_duration_ffprobe(cached)
                 async with lock:
@@ -1042,28 +1318,31 @@ async def stage_generate(
             else:
                 ext = ".mp3" if "edge" in engine_name.lower() else ".wav"
                 tmp_path = str(CACHE_DIR / f"{segment['text_hash']}_{slugify(voice)}{ext}")
-                async with sem:
-                    if cancel_event and cancel_event.is_set():
-                        return
-                    result = await engine.generate(
-                        text=transformed_text,
-                        voice=voice,
-                        speed=speed,
-                        output_path=tmp_path,
-                    )
+                if cancel_event and cancel_event.is_set():
+                    return
+                result = await engine.generate(
+                    text=transformed_text,
+                    voice=voice,
+                    speed=tts_speed,
+                    output_path=tmp_path,
+                )
                 cache_path = cache.put(
                     transformed_text,
                     voice,
                     engine_name,
-                    speed=speed,
+                    speed=tts_speed,
                     audio_path=result.audio_path,
                     duration=result.duration_seconds,
+                    pronunciation_hash=pronunciation_hash,
+                    speed_mode=speed_mode,
                 )
                 duration = result.duration_seconds or get_duration_ffprobe(cache_path)
                 async with lock:
                     segment["cache_file"] = cache_path
                     segment["duration_seconds"] = duration
                     segment["status"] = "cached"
+                    segment["speed_mode"] = speed_mode
+                    segment["speed_applied"] = speed if speed_mode != "native" else tts_speed
 
             async with lock:
                 done += 1
@@ -1090,13 +1369,41 @@ async def stage_generate(
                 if progress_callback:
                     progress_callback(done, total, f"Error on chapter {ch_idx+1}, segment {seg_idx+1}: {exc}")
 
-    tasks = [asyncio.create_task(process_one(ch, seg)) for ch, seg in pending]
-    await asyncio.gather(*tasks)
+    async def producer() -> None:
+        for item in pending:
+            if cancel_event and cancel_event.is_set():
+                break
+            await queue.put(item)
+        for _ in range(max_workers):
+            await queue.put(None)
+
+    async def worker() -> None:
+        while True:
+            item = await queue.get()
+            if item is None:
+                queue.task_done()
+                break
+            ch_idx, seg_idx = item
+            await process_one(ch_idx, seg_idx)
+            queue.task_done()
+
+    producer_task = asyncio.create_task(producer())
+    workers = [asyncio.create_task(worker()) for _ in range(max_workers)]
+    await asyncio.gather(producer_task)
+    await queue.join()
+    await asyncio.gather(*workers)
+
     manifest["progress"]["completed_segments"] = sum(
         1 for chapter in manifest["chapters"] for seg in chapter["segments"] if seg.get("status") == "cached"
     )
     if manifest_path:
         save_manifest(manifest, manifest_path)
+    if cancel_event and cancel_event.is_set():
+        update_run_state(manifest, "cancelled", "Generation cancelled by user", manifest_path)
+    elif any(seg.get("status") == "error" for ch in manifest["chapters"] for seg in ch["segments"]):
+        update_run_state(manifest, "failed", "Generation completed with errors", manifest_path)
+    else:
+        update_run_state(manifest, "generated", "All segments generated", manifest_path)
     return manifest
 
 
@@ -1114,7 +1421,7 @@ def normalize_loudness(input_path: str, output_path: str, target_lufs: float = -
         "null",
         "-",
     ]
-    pass1 = subprocess.run(cmd1, capture_output=True, text=True, check=False)
+    pass1 = subprocess.run(cmd1, capture_output=True, text=True, check=False, timeout=DEFAULT_FFMPEG_TIMEOUT_S)
     stats_match = re.search(r"\{[\s\S]*?\}", pass1.stderr)
     if not stats_match:
         raise RuntimeError("Failed to parse loudnorm pass 1 metrics from ffmpeg output.")
@@ -1141,7 +1448,7 @@ def normalize_loudness(input_path: str, output_path: str, target_lufs: float = -
         "-y",
         output_path,
     ]
-    run_command(cmd2)
+    run_ffmpeg(cmd2)
     return output_path
 
 
@@ -1203,23 +1510,59 @@ def create_silence_file(duration: float, output_path: Path) -> Path:
         "-y",
         str(output_path),
     ]
-    run_command(cmd)
+    run_ffmpeg(cmd)
     return output_path
+
+
+def build_atempo_filter(speed: float) -> str:
+    if speed <= 0:
+        raise ValueError("Speed multiplier must be > 0")
+    factors: list[float] = []
+    remaining = float(speed)
+    while remaining > 2.0:
+        factors.append(2.0)
+        remaining /= 2.0
+    while remaining < 0.5:
+        factors.append(0.5)
+        remaining /= 0.5
+    if abs(remaining - 1.0) > 0.0001:
+        factors.append(remaining)
+    if not factors:
+        return "anull"
+    return ",".join(f"atempo={f:.6f}".rstrip("0").rstrip(".") for f in factors)
 
 
 def stage_assemble(
     manifest: dict[str, Any],
     output_format: str = "m4b",
     normalize_audio: bool = True,
+    manifest_path: Optional[str] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> str:
     ensure_runtime_dirs()
     if not ffmpeg_exists():
         raise RuntimeError("FFmpeg and ffprobe are required for assembly stage.")
+    update_run_state(manifest, "assembling", "Starting assembly", manifest_path)
 
     chapter_gap = create_silence_file(2.0, TEMP_DIR / "silence_2s.mp3")
     scene_gap = create_silence_file(1.0, TEMP_DIR / "silence_1s.mp3")
     para_gap = create_silence_file(0.5, TEMP_DIR / "silence_05s.mp3")
     dialogue_gap = create_silence_file(0.3, TEMP_DIR / "silence_03s.mp3")
+
+    runtime = manifest.setdefault("runtime", {})
+    assembly = runtime.setdefault(
+        "assembly",
+        {"concat_done": False, "music_mixed": False, "speed_adjusted": False, "normalized": False, "output_done": False},
+    )
+
+    def mark(stage_key: str, value: bool, message: str) -> None:
+        assembly[stage_key] = value
+        update_run_state(manifest, "assembling", message, manifest_path)
+
+    def ensure_not_cancelled(phase: str) -> None:
+        if cancel_event and cancel_event.is_set():
+            update_run_state(manifest, "cancelled", f"Cancelled during assembly ({phase})", manifest_path)
+            raise RuntimeError(f"Assembly cancelled during {phase}.")
 
     concat_list = TEMP_DIR / "concat_list.txt"
     with open(concat_list, "w", encoding="utf-8") as f:
@@ -1239,28 +1582,31 @@ def stage_assemble(
                 f.write(f"file '{chapter_gap.resolve().as_posix()}'\n")
 
     concatenated = TEMP_DIR / "concatenated.mp3"
-    run_command(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-            str(concat_list),
-            "-ac",
-            "1",
-            "-ar",
-            "44100",
-            "-c:a",
-            "libmp3lame",
-            "-q:a",
-            "2",
-            "-y",
-            str(concatenated),
-        ]
-    )
+    ensure_not_cancelled("concat")
+    if not (assembly.get("concat_done") and concatenated.exists()):
+        run_ffmpeg(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_list),
+                "-ac",
+                "1",
+                "-ar",
+                "44100",
+                "-c:a",
+                "libmp3lame",
+                "-q:a",
+                "2",
+                "-y",
+                str(concatenated),
+            ]
+        )
+        mark("concat_done", True, "Concat complete")
 
     assembled_path = concatenated
 
@@ -1269,36 +1615,76 @@ def stage_assemble(
     if bg_music:
         mixed = TEMP_DIR / "mixed.mp3"
         duck_db = settings.get("music_duck_db", -15)
-        run_command(
-            [
-                "ffmpeg",
-                "-hide_banner",
-                "-i",
-                str(assembled_path),
-                "-i",
-                str(bg_music),
-                "-filter_complex",
-                f"[1:a]volume={duck_db}dB[music];[0:a][music]amix=inputs=2:duration=first:dropout_transition=3",
-                "-ac",
-                "1",
-                "-ar",
-                "44100",
-                "-y",
-                str(mixed),
-            ]
-        )
+        ensure_not_cancelled("music_mix")
+        if not (assembly.get("music_mixed") and mixed.exists()):
+            run_ffmpeg(
+                [
+                    "ffmpeg",
+                    "-hide_banner",
+                    "-i",
+                    str(assembled_path),
+                    "-i",
+                    str(bg_music),
+                    "-filter_complex",
+                    f"[1:a]volume={duck_db}dB[music];[0:a][music]amix=inputs=2:duration=first:dropout_transition=3",
+                    "-ac",
+                    "1",
+                    "-ar",
+                    "44100",
+                    "-y",
+                    str(mixed),
+                ]
+            )
+            mark("music_mixed", True, "Background music mixed")
         assembled_path = mixed
+    else:
+        assembly["music_mixed"] = True
+
+    speed_mode = str(settings.get("speed_mode", "native"))
+    speed = float(settings.get("speed_multiplier", 1.0))
+    if speed_mode != "native" and abs(speed - 1.0) > 0.0001:
+        speed_out = TEMP_DIR / "speed_adjusted.mp3"
+        ensure_not_cancelled("speed_adjust")
+        if not (assembly.get("speed_adjusted") and speed_out.exists()):
+            run_ffmpeg(
+                [
+                    "ffmpeg",
+                    "-hide_banner",
+                    "-i",
+                    str(assembled_path),
+                    "-filter:a",
+                    build_atempo_filter(speed),
+                    "-ac",
+                    "1",
+                    "-ar",
+                    "44100",
+                    "-y",
+                    str(speed_out),
+                ]
+            )
+            mark("speed_adjusted", True, "Speed post-processing complete")
+        assembled_path = speed_out
+    else:
+        assembly["speed_adjusted"] = True
 
     if normalize_audio:
         normalized = TEMP_DIR / "normalized.mp3"
-        assembled_path = Path(normalize_loudness(str(assembled_path), str(normalized)))
+        ensure_not_cancelled("normalize")
+        if not (assembly.get("normalized") and normalized.exists()):
+            assembled_path = Path(normalize_loudness(str(assembled_path), str(normalized)))
+            mark("normalized", True, "Loudness normalization complete")
+        else:
+            assembled_path = normalized
+    else:
+        assembly["normalized"] = True
 
     book_title = slugify(manifest.get("book", {}).get("title", "Audiobook"), fallback="audiobook")
+    ensure_not_cancelled("final_output")
     if output_format.lower() == "m4b":
         metadata_file = TEMP_DIR / "chapters_meta.txt"
         generate_chapter_metadata(manifest, str(metadata_file))
         output_path = OUTPUT_DIR / f"{book_title}.m4b"
-        run_command(
+        run_ffmpeg(
             [
                 "ffmpeg",
                 "-hide_banner",
@@ -1326,6 +1712,8 @@ def stage_assemble(
         output_path = OUTPUT_DIR / f"{book_title}.mp3"
         shutil.copy2(assembled_path, output_path)
 
+    mark("output_done", True, f"Output ready: {output_path.name}")
+    update_run_state(manifest, "completed", "Assembly completed", manifest_path)
     return str(output_path)
 
 
@@ -1383,6 +1771,13 @@ def normalize_engine_label(label: str) -> str:
     return "edge-tts"
 
 
+def normalize_speed_mode_label(label: str) -> str:
+    low = (label or "").lower()
+    if "post-process" in low:
+        return "post_process"
+    return "native"
+
+
 def voices_for_engine(engine_label: str) -> list[str]:
     engine = create_tts_engine(normalize_engine_label(engine_label))
     voices = [v.get("name", "") for v in engine.list_voices()]
@@ -1400,6 +1795,7 @@ def build_ui():
 
     with gr.Blocks(title="Audiobook Creator V7", theme=gr.themes.Soft()) as app:
         manifest_path_state = gr.State("")
+        cloud_url_state = gr.State("")
 
         with gr.Tab("Input"):
             with gr.Row():
@@ -1436,6 +1832,11 @@ def build_ui():
             )
             pronunciation_table = gr.Dataframe(headers=["Word", "Sounds Like"], value=[], interactive=True)
             speed_slider = gr.Slider(0.8, 1.3, value=1.0, step=0.05, label="Speed")
+            speed_mode = gr.Radio(
+                ["native (separate cache per speed)", "post-process (cache-friendly)"],
+                value="native (separate cache per speed)",
+                label="Speed handling",
+            )
             with gr.Accordion("Background music", open=False):
                 music_file = gr.File(label="Music MP3", file_types=[".mp3"])
                 music_volume = gr.Slider(-25, -5, value=-15, step=1, label="Music duck volume (dB)")
@@ -1446,6 +1847,9 @@ def build_ui():
                 cancel_btn = gr.Button("Cancel", variant="stop", scale=1)
             output_format = gr.Radio(["M4B (Chaptered)", "MP3"], value="M4B (Chaptered)", label="Output Format")
             normalize_check = gr.Checkbox(label="Normalize loudness (-19 LUFS)", value=True)
+            low_memory_mode = gr.Checkbox(label="Low-memory mode (best for free cloud machines)", value=True)
+            cache_size_mb = gr.Slider(128, 4096, value=500, step=64, label="Cache size limit (MB)")
+            free_cloud_memory = gr.Checkbox(label="Enable free cloud memory backup (JSONBlob)", value=False)
             progress_text = gr.Markdown("")
             chapter_progress = gr.Dataframe(headers=["Chapter", "Status", "Segments Done"], value=[])
 
@@ -1453,6 +1857,15 @@ def build_ui():
             audio_player = gr.Audio(label="Audiobook", type="filepath")
             chapter_nav = gr.Dropdown(label="Jump to Chapter", choices=[])
             download_file = gr.File(label="Download")
+
+        with gr.Tab("System"):
+            preflight_table = gr.Dataframe(headers=["Check", "Status", "Detail"], value=run_preflight_checks(), interactive=False)
+            refresh_preflight_btn = gr.Button("Refresh system checks")
+            cloud_manifest_url = gr.Textbox(label="Free cloud manifest URL", placeholder="https://jsonblob.com/api/jsonBlob/...")
+            with gr.Row():
+                backup_cloud_btn = gr.Button("Backup manifest to free cloud")
+                restore_cloud_btn = gr.Button("Restore manifest from cloud URL")
+            cloud_status = gr.Markdown("")
 
         def on_engine_change(engine_label: str):
             voice_choices = voices_for_engine(engine_label)
@@ -1478,13 +1891,20 @@ def build_ui():
             narrator: str,
             dialogue: str,
             speed: float,
+            speed_mode_label: str,
             pron_rows: Any,
+            low_mem: bool,
+            cache_mb: float,
+            cloud_enabled: bool,
+            cloud_url: str,
         ):
             try:
                 input_path = getattr(file_obj, "name", None) if file_obj else None
                 engine_name = normalize_engine_label(engine_label)
+                norm_speed_mode = normalize_speed_mode_label(speed_mode_label)
                 narrator = narrator or "en-US-GuyNeural"
                 dialogue = dialogue or "en-US-JennyNeural"
+                max_concurrent = 1 if low_mem else create_tts_engine(engine_name).max_concurrent
                 settings = {
                     "tts_engine": engine_name,
                     "narrator_voice": narrator,
@@ -1492,9 +1912,15 @@ def build_ui():
                     "character_voices": {},
                     "pronunciation_overrides": parse_pronunciation_table(pron_rows),
                     "speed_multiplier": float(speed),
+                    "speed_mode": norm_speed_mode,
+                    "max_concurrent": max_concurrent,
+                    "max_queue_size": 8 if low_mem else 32,
+                    "cache_max_size_mb": int(cache_mb),
                     "background_music": None,
                     "music_duck_db": -15,
                     "output_format": "m4b",
+                    "enable_free_cloud_memory": bool(cloud_enabled),
+                    "free_cloud_manifest_url": str(cloud_url or ""),
                 }
                 manifest, manifest_path = stage_parse(
                     input_path=input_path,
@@ -1502,6 +1928,15 @@ def build_ui():
                     url=url,
                     raw_text=text,
                 )
+                cloud_url_effective = str(cloud_url or "")
+                if cloud_enabled and not cloud_url_effective:
+                    with contextlib.suppress(Exception):
+                        cloud_url_effective = upload_manifest_to_free_cloud(manifest)
+                        manifest.setdefault("runtime", {}).setdefault("cloud_backup", {})
+                        manifest["runtime"]["cloud_backup"]["enabled"] = True
+                        manifest["runtime"]["cloud_backup"]["url"] = cloud_url_effective
+                        manifest["settings"]["free_cloud_manifest_url"] = cloud_url_effective
+                        save_manifest(manifest, manifest_path)
                 chapter_rows = build_chapter_table(manifest)
                 char_rows = build_character_table(manifest)
                 estimate = int(manifest["progress"].get("estimated_remaining_seconds", 0))
@@ -1518,12 +1953,18 @@ def build_ui():
                     f"Estimated generation time: **~{estimate // 60} min {estimate % 60}s**",
                     manifest_path,
                     gr.Dropdown(choices=chapter_choices, value=chapter_choices[0] if chapter_choices else None),
+                    cloud_url_effective,
+                    gr.Textbox(value=cloud_url_effective),
                 )
             except Exception as exc:
-                return (f"Parse failed: {exc}", [], [], "", "", gr.Dropdown(choices=[], value=None))
+                return (f"Parse failed: {exc}", [], [], "", "", gr.Dropdown(choices=[], value=None), "", gr.Textbox(value=""))
 
-        def on_cancel():
+        def on_cancel(manifest_path: str):
             cancel_event.set()
+            if manifest_path:
+                with contextlib.suppress(Exception):
+                    manifest = load_manifest(manifest_path)
+                    update_run_state(manifest, "cancel_requested", "User requested cancellation", manifest_path)
             return "Cancellation requested. Current segment(s) will finish then stop."
 
         def on_generate(
@@ -1532,12 +1973,17 @@ def build_ui():
             narrator: str,
             dialogue: str,
             speed: float,
+            speed_mode_label: str,
             char_rows: Any,
             pron_rows: Any,
             out_fmt: str,
             do_normalize: bool,
             music_obj: Any,
             music_db: float,
+            low_mem: bool,
+            cache_mb: float,
+            cloud_enabled: bool,
+            cloud_url: str,
             progress=gr.Progress(),
         ):
             if not manifest_path:
@@ -1550,10 +1996,16 @@ def build_ui():
                 settings["narrator_voice"] = narrator or settings.get("narrator_voice", "en-US-GuyNeural")
                 settings["dialogue_voice"] = dialogue or settings.get("dialogue_voice", "en-US-JennyNeural")
                 settings["speed_multiplier"] = float(speed)
+                settings["speed_mode"] = normalize_speed_mode_label(speed_mode_label)
                 settings["pronunciation_overrides"] = parse_pronunciation_table(pron_rows)
                 settings["music_duck_db"] = float(music_db)
                 settings["background_music"] = getattr(music_obj, "name", None) if music_obj else None
                 settings["output_format"] = "m4b" if out_fmt.lower().startswith("m4b") else "mp3"
+                settings["max_concurrent"] = 1 if low_mem else int(create_tts_engine(settings["tts_engine"]).max_concurrent)
+                settings["max_queue_size"] = 8 if low_mem else 32
+                settings["cache_max_size_mb"] = int(cache_mb)
+                settings["enable_free_cloud_memory"] = bool(cloud_enabled)
+                settings["free_cloud_manifest_url"] = str(cloud_url or "")
 
                 updated_char_map: dict[str, dict[str, Any]] = {}
                 for row in (char_rows or []):
@@ -1576,6 +2028,14 @@ def build_ui():
                                 segment["duration_seconds"] = None
 
                 manifest["settings"] = settings
+                manifest.setdefault("runtime", {})["assembly"] = {
+                    "concat_done": False,
+                    "music_mixed": False,
+                    "speed_adjusted": False,
+                    "normalized": False,
+                    "output_done": False,
+                }
+                update_run_state(manifest, "idle", "Ready to generate", manifest_path=None)
                 save_manifest(manifest, manifest_path)
 
                 def progress_cb(done: int, total: int, desc: str) -> None:
@@ -1601,13 +2061,97 @@ def build_ui():
                     manifest=manifest,
                     output_format=settings["output_format"],
                     normalize_audio=bool(do_normalize),
+                    manifest_path=manifest_path,
+                    cancel_event=cancel_event,
                 )
                 progress(1.0, desc="Done")
+                if settings.get("enable_free_cloud_memory"):
+                    with contextlib.suppress(Exception):
+                        cloud_link = upload_manifest_to_free_cloud(manifest)
+                        settings["free_cloud_manifest_url"] = cloud_link
+                        manifest["runtime"]["cloud_backup"] = {"enabled": True, "url": cloud_link}
                 save_manifest(manifest, manifest_path)
                 progress_rows = build_chapter_progress(manifest)
                 return ("Generation complete.", progress_rows, output_path, output_path)
             except Exception as exc:
+                if "manifest" in locals():
+                    update_run_state(manifest, "failed", f"Generation failed: {exc}", manifest_path)
                 return (f"Generation failed: {exc}", [], None, None)
+
+        def on_refresh_preflight():
+            return run_preflight_checks()
+
+        def on_cloud_backup(manifest_path: str):
+            if not manifest_path:
+                return "No manifest loaded. Parse a book first.", "", gr.Textbox(value="")
+            try:
+                manifest = load_manifest(manifest_path)
+                cloud_link = upload_manifest_to_free_cloud(manifest)
+                manifest.setdefault("runtime", {}).setdefault("cloud_backup", {})
+                manifest["runtime"]["cloud_backup"]["enabled"] = True
+                manifest["runtime"]["cloud_backup"]["url"] = cloud_link
+                manifest.setdefault("settings", {})["enable_free_cloud_memory"] = True
+                manifest["settings"]["free_cloud_manifest_url"] = cloud_link
+                save_manifest(manifest, manifest_path)
+                return f"Backed up manifest to free cloud: `{cloud_link}`", cloud_link, gr.Textbox(value=cloud_link)
+            except Exception as exc:
+                return f"Cloud backup failed: {exc}", "", gr.Textbox(value="")
+
+        def on_cloud_restore(cloud_url: str):
+            if not cloud_url or not cloud_url.strip():
+                return (
+                    "Enter a cloud manifest URL first.",
+                    "",
+                    [],
+                    [],
+                    "",
+                    "",
+                    gr.Dropdown(choices=[], value=None),
+                    "",
+                    gr.Textbox(value=""),
+                )
+            try:
+                manifest = load_manifest_from_free_cloud(cloud_url)
+                title = manifest.get("book", {}).get("title", "Cloud_Manifest")
+                manifest_name = f"{slugify(title)}_cloud_manifest.json"
+                manifest_path = str(MANIFESTS_DIR / manifest_name)
+                manifest.setdefault("runtime", {}).setdefault("cloud_backup", {})
+                manifest["runtime"]["cloud_backup"]["enabled"] = True
+                manifest["runtime"]["cloud_backup"]["url"] = cloud_url.strip()
+                manifest.setdefault("settings", {})["enable_free_cloud_memory"] = True
+                manifest["settings"]["free_cloud_manifest_url"] = cloud_url.strip()
+                save_manifest(manifest, manifest_path)
+                chapter_rows = build_chapter_table(manifest)
+                char_rows = build_character_table(manifest)
+                estimate = int(manifest.get("progress", {}).get("estimated_remaining_seconds", 0))
+                chapter_choices = [c.get("title", f"Chapter {i+1}") for i, c in enumerate(manifest.get("chapters", []))]
+                parse_msg = (
+                    f"Loaded cloud manifest with **{len(manifest.get('chapters', []))}** chapters and "
+                    f"**{manifest.get('progress', {}).get('total_segments', 0)}** segments."
+                )
+                return (
+                    "Cloud manifest restored.",
+                    parse_msg,
+                    chapter_rows,
+                    char_rows,
+                    f"Estimated generation time: **~{estimate // 60} min {estimate % 60}s**",
+                    manifest_path,
+                    gr.Dropdown(choices=chapter_choices, value=chapter_choices[0] if chapter_choices else None),
+                    cloud_url.strip(),
+                    gr.Textbox(value=cloud_url.strip()),
+                )
+            except Exception as exc:
+                return (
+                    f"Cloud restore failed: {exc}",
+                    "",
+                    [],
+                    [],
+                    "",
+                    "",
+                    gr.Dropdown(choices=[], value=None),
+                    "",
+                    gr.Textbox(value=""),
+                )
 
         engine_select.change(
             on_engine_change,
@@ -1634,11 +2178,25 @@ def build_ui():
                 narrator_voice,
                 dialogue_voice,
                 speed_slider,
+                speed_mode,
                 pronunciation_table,
+                low_memory_mode,
+                cache_size_mb,
+                free_cloud_memory,
+                cloud_manifest_url,
             ],
-            outputs=[parse_status, chapter_list, character_table, time_estimate, manifest_path_state, chapter_nav],
+            outputs=[
+                parse_status,
+                chapter_list,
+                character_table,
+                time_estimate,
+                manifest_path_state,
+                chapter_nav,
+                cloud_url_state,
+                cloud_manifest_url,
+            ],
         )
-        cancel_btn.click(on_cancel, outputs=[progress_text])
+        cancel_btn.click(on_cancel, inputs=[manifest_path_state], outputs=[progress_text])
         generate_btn.click(
             on_generate,
             inputs=[
@@ -1647,14 +2205,36 @@ def build_ui():
                 narrator_voice,
                 dialogue_voice,
                 speed_slider,
+                speed_mode,
                 character_table,
                 pronunciation_table,
                 output_format,
                 normalize_check,
                 music_file,
                 music_volume,
+                low_memory_mode,
+                cache_size_mb,
+                free_cloud_memory,
+                cloud_manifest_url,
             ],
             outputs=[progress_text, chapter_progress, audio_player, download_file],
+        )
+        refresh_preflight_btn.click(on_refresh_preflight, outputs=[preflight_table])
+        backup_cloud_btn.click(on_cloud_backup, inputs=[manifest_path_state], outputs=[cloud_status, cloud_url_state, cloud_manifest_url])
+        restore_cloud_btn.click(
+            on_cloud_restore,
+            inputs=[cloud_manifest_url],
+            outputs=[
+                cloud_status,
+                parse_status,
+                chapter_list,
+                character_table,
+                time_estimate,
+                manifest_path_state,
+                chapter_nav,
+                cloud_url_state,
+                cloud_manifest_url,
+            ],
         )
 
     return app
