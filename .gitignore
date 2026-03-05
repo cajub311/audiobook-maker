@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.env
+venv/
+env/
+.venv/
+
+# App data (user-generated, too large for git)
+tts_cache/
+manifests/
+temp/
+output/
+
+# Pronunciation files (user-specific, committed separately)
+pronunciations/*.json
+!pronunciations/example.json
+
+# Kokoro model files (too large for git)
+*.onnx
+*.bin
+
+# spaCy models
+en_core_web_sm/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Node / Vercel website
+website/node_modules/
+website/.next/
+website/.vercel/
+
+# Misc
+.cursor/

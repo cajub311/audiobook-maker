@@ -1,0 +1,32 @@
+# Audiobook Creator V7 — Python Dependencies
+
+# Core framework & UI
+gradio>=4.44.0
+fastapi>=0.115.0
+uvicorn>=0.30.0
+
+# TTS Engines
+edge-tts>=6.1.10
+
+# Kokoro offline TTS (optional — ~80MB model download on first use)
+kokoro-onnx>=0.4.0
+soundfile>=0.12.1
+
+# Book parsing
+pdfplumber>=0.11.0
+EbookLib>=0.18
+beautifulsoup4>=4.12.0
+lxml>=5.3.0
+trafilatura>=1.12.0
+requests>=2.32.0
+
+# Audio processing
+pydub>=0.25.1
+
+# NLP for character detection
+spacy>=3.8.0
+
+# Utilities
+tqdm>=4.66.0
+python-multipart>=0.0.9
+aiofiles>=24.1.0
