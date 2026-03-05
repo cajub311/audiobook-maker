@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Audiobook Maker - Mobile Launcher</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: Arial, sans-serif;
+      }
+      body {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 1.25rem 1rem 3rem;
+        line-height: 1.5;
+      }
+      h1 {
+        margin-bottom: 0.5rem;
+      }
+      code {
+        background: rgba(127, 127, 127, 0.15);
+        padding: 0.1rem 0.3rem;
+        border-radius: 4px;
+      }
+      pre {
+        background: rgba(127, 127, 127, 0.15);
+        padding: 0.8rem;
+        border-radius: 8px;
+        overflow-x: auto;
+      }
+      .card {
+        border: 1px solid rgba(127, 127, 127, 0.25);
+        border-radius: 12px;
+        padding: 1rem;
+        margin-top: 1rem;
+      }
+      .small {
+        font-size: 0.92rem;
+        opacity: 0.9;
+      }
+      .btn {
+        display: inline-block;
+        margin-top: 0.5rem;
+        padding: 0.65rem 0.9rem;
+        border-radius: 10px;
+        border: 1px solid rgba(127, 127, 127, 0.35);
+        text-decoration: none;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Audiobook Maker</h1>
+    <p>Mobile launcher + deployment helper page.</p>
+
+    <div class="card">
+      <h2>Fast phone workflow</h2>
+      <ol>
+        <li>Run: <code>python3 audiobook_creator_v7.py</code></li>
+        <li>Open the app URL on your phone</li>
+        <li>Use <strong>Easy Mobile Mode</strong> tab</li>
+      </ol>
+      <pre><code>pip install -r requirements.txt
+python3 audiobook_creator_v7.py</code></pre>
+      <p class="small">
+        For a temporary public URL from your machine:
+        <code>GRADIO_SHARE=1 python3 audiobook_creator_v7.py</code>
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Launcher API</h2>
+      <p>Machine-readable startup steps:</p>
+      <a class="btn" href="/api/launch">Open /api/launch</a>
+      <pre id="api-output"><code>Loading...</code></pre>
+    </div>
+
+    <div class="card">
+      <h2>If you saw 404 on Vercel</h2>
+      <ul>
+        <li>Set project <strong>Root Directory</strong> to repository root (<code>.</code>)</li>
+        <li>Framework preset: <strong>Other</strong></li>
+        <li>Redeploy after latest push</li>
+      </ul>
+    </div>
+
+    <script>
+      fetch("/api/launch")
+        .then(function (res) {
+          return res.json();
+        })
+        .then(function (data) {
+          document.getElementById("api-output").textContent = JSON.stringify(
+            data,
+            null,
+            2
+          );
+        })
+        .catch(function () {
+          document.getElementById("api-output").textContent =
+            "Could not load /api/launch.";
+        });
+    </script>
+  </body>
+</html>

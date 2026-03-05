@@ -1,14 +1,5 @@
 {
   "version": 2,
   "cleanUrls": true,
-  "rewrites": [
-    {
-      "source": "/",
-      "destination": "/website/index.html"
-    },
-    {
-      "source": "/api/launch",
-      "destination": "/api/launch.js"
-    }
-  ]
+  "trailingSlash": false
 }

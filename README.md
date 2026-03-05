@@ -76,7 +76,8 @@ This repo includes a lightweight Vercel launcher website so visitors can discove
 
 ### Launcher files
 
-- `vercel.json` - routes `/` to the launcher page and exposes `/api/launch`
+- `index.html` - root launcher page (primary Vercel entrypoint)
+- `vercel.json` - minimal Vercel settings (`cleanUrls`, no trailing slash)
 - `website/index.html` - static launcher UI with quick-start commands
 - `api/launch.js` - JSON instructions endpoint
 
@@ -90,3 +91,9 @@ After deployment:
 
 - `/` shows the launcher page
 - `/api/launch` returns machine-readable launch instructions
+
+### If Vercel shows 404 NOT_FOUND
+
+1. In Vercel Project Settings, set **Root Directory** to repository root (`.`)
+2. Use framework preset **Other**
+3. Redeploy latest commit from `main`
