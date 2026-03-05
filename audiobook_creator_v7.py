@@ -1885,6 +1885,28 @@ def runtime_state_badge(state: str, detail: str = "") -> str:
     return f"{icon} **{label}**"
 
 
+def build_chapter_preview_markdown(manifest: dict[str, Any], max_items: int = 8) -> str:
+    chapters = manifest.get("chapters", []) or []
+    if not chapters:
+        return "_No chapter preview available._"
+    lines = ["### Live Chapter Preview"]
+    for chapter in chapters[:max_items]:
+        title = str(chapter.get("title", f"Chapter {chapter.get('index', 0) + 1}"))
+        segments = chapter.get("segments", []) or []
+        snippet = ""
+        if segments:
+            snippet = str(segments[0].get("text", "")).strip().replace("\n", " ")
+        if len(snippet) > 160:
+            snippet = snippet[:157] + "..."
+        seg_count = len(segments)
+        lines.append(f"- **{title}** ({seg_count} segments)")
+        if snippet:
+            lines.append(f"  - _{snippet}_")
+    if len(chapters) > max_items:
+        lines.append(f"- _...and {len(chapters) - max_items} more chapters._")
+    return "\n".join(lines)
+
+
 def parse_pronunciation_table(rows: Any) -> dict[str, str]:
     overrides: dict[str, str] = {}
     if not rows:
@@ -2071,6 +2093,34 @@ MOBILE_CSS = """
 }
 .gr-button {min-height: 48px !important; font-size: 1rem !important; border-radius: 12px !important;}
 input, textarea, select {font-size: 16px !important;}
+.easy-action-btn button {
+  min-height: 56px !important;
+  font-size: 1.08rem !important;
+  font-weight: 700 !important;
+}
+.bottom-mobile-nav {
+  position: sticky;
+  bottom: 10px;
+  z-index: 30;
+  padding: 8px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  backdrop-filter: blur(8px);
+}
+.bottom-mobile-nav .nav-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+.bottom-mobile-nav button {
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 8px 6px;
+  font-size: 12px;
+  background: rgba(30, 41, 59, 0.75);
+  color: #e2e8f0;
+}
 .glass-card {
   backdrop-filter: blur(10px);
   background: rgba(15, 23, 42, 0.58) !important;
@@ -2082,6 +2132,9 @@ input, textarea, select {font-size: 16px !important;}
   .gradio-container {padding: 10px !important;}
   .gr-row {flex-direction: column !important; gap: 10px !important;}
   .gr-button {width: 100% !important;}
+  .bottom-mobile-nav .nav-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 """
 
@@ -2134,9 +2187,29 @@ def build_ui():
 
         with gr.Tab("Easy Mobile Mode"):
             gr.Markdown("### One-tap audiobook mode (phone-friendly)")
+            gr.HTML(
+                """
+                <div class="bottom-mobile-nav">
+                  <div class="nav-grid">
+                    <button type="button" onclick="window.__abmSwitchTab?.('Easy Mobile Mode')">Easy</button>
+                    <button type="button" onclick="window.__abmSwitchTab?.('Input (Advanced)')">Input</button>
+                    <button type="button" onclick="window.__abmSwitchTab?.('Voices')">Voices</button>
+                    <button type="button" onclick="window.__abmSwitchTab?.('Generate')">Generate</button>
+                    <button type="button" onclick="window.__abmSwitchTab?.('Player')">Player</button>
+                  </div>
+                </div>
+                <script>
+                window.__abmSwitchTab = function (name) {
+                  const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+                  const target = tabs.find((el) => (el.textContent || '').trim() === name);
+                  if (target) target.click();
+                };
+                </script>
+                """
+            )
             quick_input_mode = gr.Radio(["File", "URL", "Paste Text"], value="Paste Text", label="Input mode")
             quick_file_input = gr.File(
-                label="Book file (EPUB/PDF/TXT)",
+                label="Drag & drop book file (EPUB/PDF/TXT)",
                 file_types=[".epub", ".pdf", ".txt"],
                 visible=False,
             )
@@ -2150,9 +2223,11 @@ def build_ui():
             with gr.Row():
                 quick_output_format = gr.Radio(["MP3", "M4B"], value="MP3", label="Format")
                 quick_free_cloud = gr.Checkbox(label="Save progress to free cloud memory", value=True)
-            quick_generate_btn = gr.Button("Generate Audiobook Now", variant="primary")
-            quick_cancel_btn = gr.Button("Cancel", variant="stop")
+            quick_generate_btn = gr.Button("Parse → Generate → Assemble → Download", variant="primary", elem_classes=["easy-action-btn"])
+            quick_cancel_btn = gr.Button("Cancel", variant="stop", elem_classes=["easy-action-btn"])
+            quick_state_badge = gr.Markdown(runtime_state_badge("idle", "Ready"))
             quick_status = gr.Markdown("")
+            quick_chapter_preview_md = gr.Markdown("_No chapter preview yet._")
             quick_player = gr.Audio(label="Audiobook", type="filepath")
             quick_download = gr.File(label="Download")
             quick_cloud_url = gr.Textbox(label="Cloud memory URL", interactive=False)
@@ -2160,7 +2235,7 @@ def build_ui():
         with gr.Tab("Input (Advanced)"):
             input_mode = gr.Radio(["File", "URL", "Paste Text"], value="File", label="Input mode")
             file_input = gr.File(
-                label="Book file (EPUB/PDF/TXT)",
+                label="Drag & drop book file (EPUB/PDF/TXT)",
                 file_types=[".epub", ".pdf", ".txt"],
                 visible=True,
             )
@@ -2169,6 +2244,7 @@ def build_ui():
             parse_btn = gr.Button("Parse & Build Manifest", variant="primary")
             parse_status = gr.Markdown("")
             chapter_list_md = gr.Markdown("")
+            chapter_preview_md = gr.Markdown("_No chapter preview yet._")
             time_estimate = gr.Markdown("")
 
         with gr.Tab("Voices"):
@@ -2284,6 +2360,7 @@ def build_ui():
                     "Select a project first.",
                     "",
                     "_No data yet._",
+                    "_No chapter preview yet._",
                     [],
                     "",
                     "",
@@ -2298,6 +2375,7 @@ def build_ui():
                     "Project entry not found. Press Refresh.",
                     "",
                     "_No data yet._",
+                    "_No chapter preview yet._",
                     [],
                     "",
                     "",
@@ -2318,6 +2396,7 @@ def build_ui():
                     manifest = load_manifest(manifest_path)
                     cloud_url = str(manifest.get("runtime", {}).get("cloud_backup", {}).get("url", "") or "")
                 chapter_rows = build_chapter_table(manifest)
+                preview_md = build_chapter_preview_markdown(manifest)
                 char_rows = build_character_table(manifest)
                 estimate = int(manifest.get("progress", {}).get("estimated_remaining_seconds", 0))
                 parse_msg = (
@@ -2338,6 +2417,7 @@ def build_ui():
                     "Project loaded.",
                     parse_msg,
                     rows_to_markdown(["Chapter", "Segments", "Characters Found", "Cache Status"], chapter_rows),
+                    preview_md,
                     char_rows,
                     f"Estimated generation time: **~{estimate // 60} min {estimate % 60}s**",
                     manifest_path,
@@ -2351,6 +2431,7 @@ def build_ui():
                     f"Failed to load project: {exc}",
                     "",
                     "_No data yet._",
+                    "_No chapter preview yet._",
                     [],
                     "",
                     "",
@@ -2450,6 +2531,7 @@ def build_ui():
                         manifest["settings"]["free_cloud_manifest_url"] = cloud_url_effective
                         save_manifest(manifest, manifest_path)
                 chapter_rows = build_chapter_table(manifest)
+                preview_md = build_chapter_preview_markdown(manifest)
                 char_rows = build_character_table(manifest)
                 estimate = int(manifest["progress"].get("estimated_remaining_seconds", 0))
                 status = (
@@ -2460,6 +2542,7 @@ def build_ui():
                 return (
                     status,
                     rows_to_markdown(["Chapter", "Segments", "Characters Found", "Cache Status"], chapter_rows),
+                    preview_md,
                     char_rows,
                     f"Estimated generation time: **~{estimate // 60} min {estimate % 60}s**",
                     manifest_path,
@@ -2467,7 +2550,7 @@ def build_ui():
                     gr.Textbox(value=cloud_url_effective),
                 )
             except Exception as exc:
-                return (f"Parse failed: {exc}", "_No data yet._", [], "", "", "", gr.Textbox(value=""))
+                return (f"Parse failed: {exc}", "_No data yet._", "_No chapter preview yet._", [], "", "", "", gr.Textbox(value=""))
 
         def on_cancel(manifest_path: str):
             cancel_event.set()
@@ -2482,7 +2565,7 @@ def build_ui():
 
         def on_quick_cancel():
             cancel_event.set()
-            return "Cancellation requested."
+            return "Cancellation requested.", runtime_state_badge("cancel_requested", "Stopping...")
 
         def on_generate(
             manifest_path: str,
@@ -2654,6 +2737,7 @@ def build_ui():
                     "Enter a cloud manifest URL first.",
                     "",
                     "_No data yet._",
+                    "_No chapter preview yet._",
                     [],
                     "",
                     "",
@@ -2672,6 +2756,7 @@ def build_ui():
                 manifest["settings"]["free_cloud_manifest_url"] = cloud_url.strip()
                 save_manifest(manifest, manifest_path)
                 chapter_rows = build_chapter_table(manifest)
+                preview_md = build_chapter_preview_markdown(manifest)
                 char_rows = build_character_table(manifest)
                 estimate = int(manifest.get("progress", {}).get("estimated_remaining_seconds", 0))
                 parse_msg = (
@@ -2682,6 +2767,7 @@ def build_ui():
                     "Cloud manifest restored.",
                     parse_msg,
                     rows_to_markdown(["Chapter", "Segments", "Characters Found", "Cache Status"], chapter_rows),
+                    preview_md,
                     char_rows,
                     f"Estimated generation time: **~{estimate // 60} min {estimate % 60}s**",
                     manifest_path,
@@ -2693,6 +2779,7 @@ def build_ui():
                     f"Cloud restore failed: {exc}",
                     "",
                     "_No data yet._",
+                    "_No chapter preview yet._",
                     [],
                     "",
                     "",
@@ -2720,7 +2807,14 @@ def build_ui():
             cancel_event.clear()
             input_path, parsed_url, parsed_text = resolve_source_inputs(input_mode_label, file_obj, url, text)
             if not input_path and not parsed_url and not parsed_text:
-                return ("Please provide a file, URL, or text.", None, None, "")
+                return (
+                    "Please provide a file, URL, or text.",
+                    runtime_state_badge("idle", "Waiting for input"),
+                    "_No chapter preview yet._",
+                    None,
+                    None,
+                    "",
+                )
             primary_engine = "edge-tts"
             narrator = "en-US-GuyNeural"
             dialogue = "en-US-JennyNeural"
@@ -2750,10 +2844,11 @@ def build_ui():
                     url=parsed_url,
                     raw_text=parsed_text,
                 )
+                preview_md = build_chapter_preview_markdown(manifest)
 
                 def progress_cb(done: int, total: int, desc: str) -> None:
                     ratio = 0.05 + ((done / total) * 0.8 if total else 0.8)
-                    progress(min(ratio, 0.9), desc=desc)
+                    progress(min(ratio, 0.9), desc=f"Segment {done}/{total} · {desc}")
 
                 progress(0.05, desc="Generating audio")
                 manifest = run_coro_sync(
@@ -2765,7 +2860,14 @@ def build_ui():
                     )
                 )
                 if cancel_event.is_set():
-                    return ("Generation cancelled.", None, None, "")
+                    return (
+                        "Generation cancelled.",
+                        runtime_state_badge("cancelled", "Stopped by user"),
+                        preview_md,
+                        None,
+                        None,
+                        "",
+                    )
                 if manifest_has_generation_errors(manifest):
                     progress(0.55, desc="Retrying with offline engine")
                     fallback_settings = manifest.get("settings", {})
@@ -2816,9 +2918,23 @@ def build_ui():
                 progress(1.0, desc="Done")
                 cloud_line = f"\nCloud memory URL: `{cloud_url}`" if cloud_url else ""
                 status = f"Done. Your audiobook is ready to play/download.{cloud_line}"
-                return (status, output_path, output_path, cloud_url)
+                return (
+                    status,
+                    runtime_state_badge("completed", "Quick flow complete"),
+                    preview_md,
+                    output_path,
+                    output_path,
+                    cloud_url,
+                )
             except Exception as exc:
-                return (f"Quick mode failed: {exc}", None, None, "")
+                return (
+                    f"Quick mode failed: {exc}",
+                    runtime_state_badge("failed", "Quick flow failed"),
+                    "_No chapter preview yet._",
+                    None,
+                    None,
+                    "",
+                )
 
         voice_browser_outputs = [voice_page_state, voice_page_label, voice_prev_page_btn, voice_next_page_btn]
         for label_component, value_component, button_component in zip(
@@ -2859,6 +2975,7 @@ def build_ui():
                 project_action_status,
                 parse_status,
                 chapter_list_md,
+                chapter_preview_md,
                 character_table,
                 time_estimate,
                 manifest_path_state,
@@ -2910,6 +3027,7 @@ def build_ui():
             outputs=[
                 parse_status,
                 chapter_list_md,
+                chapter_preview_md,
                 character_table,
                 time_estimate,
                 manifest_path_state,
@@ -2955,14 +3073,14 @@ def build_ui():
                 quick_output_format,
                 quick_free_cloud,
             ],
-            outputs=[quick_status, quick_player, quick_download, quick_cloud_url],
+            outputs=[quick_status, quick_state_badge, quick_chapter_preview_md, quick_player, quick_download, quick_cloud_url],
         )
         quick_evt.then(
             on_refresh_projects,
             inputs=[project_selector],
             outputs=[project_selector, project_map_state, project_details, project_action_status],
         )
-        quick_cancel_btn.click(on_quick_cancel, outputs=[quick_status])
+        quick_cancel_btn.click(on_quick_cancel, outputs=[quick_status, quick_state_badge])
         refresh_preflight_btn.click(on_refresh_preflight, outputs=[preflight_table])
         backup_cloud_btn.click(on_cloud_backup, inputs=[manifest_path_state], outputs=[cloud_status, cloud_url_state, cloud_manifest_url])
         restore_evt = restore_cloud_btn.click(
@@ -2972,6 +3090,7 @@ def build_ui():
                 cloud_status,
                 parse_status,
                 chapter_list_md,
+                chapter_preview_md,
                 character_table,
                 time_estimate,
                 manifest_path_state,
