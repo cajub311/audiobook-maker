@@ -2400,6 +2400,15 @@ input, textarea, select {font-size: 16px !important;}
   font-size: 12px;
   background: rgba(30, 41, 59, 0.75);
   color: #e2e8f0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-height: 44px;
+}
+.bottom-mobile-nav button:active,
+.bottom-mobile-nav button:focus {
+  background: rgba(99, 102, 241, 0.3);
+  border-color: rgba(99, 102, 241, 0.6);
+  color: #ffffff;
 }
 .glass-card {
   backdrop-filter: blur(10px);
@@ -2408,12 +2417,43 @@ input, textarea, select {font-size: 16px !important;}
   border-radius: 16px !important;
   box-shadow: 0 10px 30px rgba(2, 6, 23, 0.35) !important;
 }
+/* Android-optimized mobile styles */
 @media (max-width: 768px) {
-  .gradio-container {padding: 10px !important;}
+  .gradio-container {padding: 10px 10px 100px 10px !important;}
   .gr-row {flex-direction: column !important; gap: 10px !important;}
   .gr-button {width: 100% !important;}
+  /* Bottom navigation bar - Android thumb zone */
+  .bottom-mobile-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: auto;
+    border-radius: 0;
+    padding: 8px;
+    border-top: 1px solid rgba(148, 163, 184, 0.3);
+    background: rgba(15, 23, 42, 0.98);
+    z-index: 50;
+  }
   .bottom-mobile-nav .nav-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .bottom-mobile-nav button {
+    padding: 12px 6px;
+    font-size: 13px;
+    min-height: 48px;
+    font-weight: 500;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  }
+  /* Prevent keyboard from hiding buttons */
+  @supports (padding: max(0px)) {
+    body {
+      padding-bottom: max(0px, env(safe-area-inset-bottom));
+    }
   }
 }
 """
@@ -3304,7 +3344,7 @@ def build_ui():
                 "free_cloud_manifest_url": "",
             }
             try:
-                progress(0.01, desc="Parsing source")
+                progress(0.01, desc="📖 Parsing text into chapters...")
                 manifest, manifest_path = stage_parse(
                     input_path=input_path,
                     settings=settings,
@@ -3316,9 +3356,10 @@ def build_ui():
 
                 def progress_cb(done: int, total: int, desc: str) -> None:
                     ratio = 0.05 + ((done / total) * 0.8 if total else 0.8)
-                    progress(min(ratio, 0.9), desc=f"Segment {done}/{total} · {desc}")
+                    emoji = "🎵" if total > 0 else "⏳"
+                    progress(min(ratio, 0.9), desc=f"{emoji} {done}/{total}: {desc}")
 
-                progress(0.05, desc="Generating audio")
+                progress(0.05, desc="🎙️ Generating audio from text...")
                 manifest = run_coro_sync(
                     stage_generate(
                         manifest=manifest,
@@ -3337,7 +3378,7 @@ def build_ui():
                         "",
                     )
                 if manifest_has_generation_errors(manifest):
-                    progress(0.55, desc="Retrying with offline engine")
+                    progress(0.55, desc="⚠️ Retrying with offline engine")
                     fallback_settings = manifest.get("settings", {})
                     fallback_settings["tts_engine"] = "kokoro"
                     fallback_settings["narrator_voice"] = "af_sarah"
@@ -3367,7 +3408,7 @@ def build_ui():
                     if manifest_has_generation_errors(manifest):
                         raise RuntimeError("Generation failed with both edge-tts and kokoro fallback.")
 
-                progress(0.92, desc="Assembling audiobook")
+                progress(0.92, desc="📦 Assembling final audiobook")
                 output_path = stage_assemble(
                     manifest=manifest,
                     output_format=output_mode,
@@ -3391,9 +3432,9 @@ def build_ui():
                     manifest_path=manifest_path,
                     cloud_url=cloud_url,
                 )
-                progress(1.0, desc="Done")
-                cloud_line = f"\nCloud memory URL: `{cloud_url}`" if cloud_url else ""
-                status = f"Done. Your audiobook is ready to play/download.{cloud_line}"
+                progress(1.0, desc="✅ Complete! Ready to download")
+                cloud_line = f"\n☁️ Cloud URL: `{cloud_url}`" if cloud_url else ""
+                status = f"✅ Done! Your audiobook is ready to play or download.{cloud_line}"
                 if cloud_backup_warning:
                     status += f"\n{cloud_backup_warning}"
                 return (
