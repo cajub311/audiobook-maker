@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0f172a" />
+    <meta name="description" content="Audiobook Maker V7 — Convert books to audiobooks with character voices, M4B chapters, and mobile-friendly UI." />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <title>Audiobook Maker V7</title>
@@ -14,33 +15,43 @@
         theme: {
           extend: {
             colors: {
-              brand: {
-                500: "#6366f1",
-                600: "#4f46e5"
-              }
+              brand: { 500: "#6366f1", 600: "#4f46e5" }
             }
           }
         }
       };
     </script>
+    <style>
+      .step-num { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 9999px; font-weight: 700; font-size: .875rem; }
+      details summary { cursor: pointer; list-style: none; }
+      details summary::-webkit-details-marker { display: none; }
+      details[open] .faq-icon { transform: rotate(45deg); }
+      .faq-icon { transition: transform .2s; }
+      @media (min-width: 768px) { .mobile-only { display: none !important; } }
+    </style>
   </head>
   <body class="bg-slate-50 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100">
-    <div
-      id="install-banner"
-      class="fixed inset-x-3 top-3 z-50 hidden rounded-2xl border border-indigo-300/40 bg-indigo-50/95 p-3 text-sm shadow-xl backdrop-blur dark:border-indigo-500/40 dark:bg-slate-900/95"
-    >
-      <div class="flex items-center justify-between gap-3">
-        <p>Install Audiobook Maker Launcher for one-tap phone access.</p>
-        <div class="flex items-center gap-2">
-          <button id="install-now" class="rounded-lg bg-brand-600 px-3 py-1.5 text-white">Install</button>
-          <button id="install-dismiss" class="rounded-lg border border-slate-300 px-3 py-1.5 dark:border-slate-700">
-            Later
-          </button>
+
+    <!-- PWA Install Banner -->
+    <div id="install-banner" class="fixed inset-x-3 top-3 z-50 hidden rounded-2xl border border-indigo-300/40 bg-indigo-50/95 p-4 shadow-xl backdrop-blur dark:border-indigo-500/40 dark:bg-slate-900/95">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <p class="font-semibold text-sm">Install Audiobook Maker Launcher</p>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Get one-tap phone access with offline support.</p>
+          <div id="ios-hint" class="hidden mt-2 text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-lg p-2">
+            On iOS: tap <strong>Share ↑</strong> → <strong>Add to Home Screen</strong>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 flex-shrink-0">
+          <button id="install-now" class="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white min-h-[40px]">Install</button>
+          <button id="install-dismiss" class="rounded-xl border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 min-h-[40px]">Later</button>
         </div>
       </div>
     </div>
 
     <main class="mx-auto max-w-6xl px-4 pb-24 pt-8 md:px-6">
+
+      <!-- Header -->
       <header class="mb-8 flex flex-wrap items-center justify-between gap-3">
         <div class="flex items-center gap-3">
           <img src="/icon.svg" alt="Audiobook Maker icon" class="h-10 w-10 rounded-xl" />
@@ -50,25 +61,17 @@
           </div>
         </div>
         <div class="flex flex-wrap items-center gap-2">
-          <a
-            href="https://github.com/cajub311/audiobook-maker-"
-            target="_blank"
-            rel="noreferrer"
-            class="rounded-full border border-slate-300 px-3 py-1 text-sm dark:border-slate-700"
-            >GitHub</a
-          >
-          <img
-            alt="GitHub stars"
-            src="https://img.shields.io/github/stars/cajub311/audiobook-maker-?style=social"
-            class="h-6"
-          />
+          <a href="https://github.com/cajub311/audiobook-maker-" target="_blank" rel="noreferrer"
+             class="rounded-full border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 min-h-[36px] flex items-center">GitHub</a>
+          <img alt="GitHub stars" src="https://img.shields.io/github/stars/cajub311/audiobook-maker-?style=social" class="h-6" />
           <img alt="Version badge" src="https://img.shields.io/badge/version-v7-indigo" class="h-6" />
-          <button id="theme-toggle" class="rounded-full border border-slate-300 px-3 py-1 text-sm dark:border-slate-700">
+          <button id="theme-toggle" class="rounded-full border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 min-h-[36px]">
             Toggle theme
           </button>
         </div>
       </header>
 
+      <!-- Hero -->
       <section class="grid gap-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/70 md:grid-cols-2 md:p-10">
         <div>
           <p class="mb-2 inline-flex rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
@@ -76,135 +79,264 @@
           </p>
           <h2 class="text-3xl font-black leading-tight md:text-4xl">Audiobook Maker V7</h2>
           <p class="mt-4 text-slate-600 dark:text-slate-300">
-            Upload, paste, or link your content, then generate a full audiobook with resume support, character voices, and cloud memory backups.
+            Upload, paste, or link your content — generate a full audiobook with character voices, M4B chapters, and cloud progress backup. Runs locally, works on any device.
           </p>
           <div class="mt-6 flex flex-wrap gap-3">
-            <a href="#quickstart" class="rounded-xl bg-brand-600 px-4 py-2 font-semibold text-white hover:bg-brand-500">
+            <a href="#quickstart" class="rounded-xl bg-brand-600 px-5 py-3 font-semibold text-white hover:bg-brand-500 min-h-[48px] flex items-center">
               Start in 2 minutes
             </a>
-            <a href="/api/launch" class="rounded-xl border border-slate-300 px-4 py-2 font-semibold dark:border-slate-700">API Launch JSON</a>
-            <button id="share-btn" class="rounded-xl border border-slate-300 px-4 py-2 font-semibold dark:border-slate-700">
+            <button id="share-btn" class="rounded-xl border border-slate-300 px-4 py-3 font-semibold dark:border-slate-700 min-h-[48px]">
               Share
             </button>
           </div>
           <p class="mt-4 text-sm text-slate-500 dark:text-slate-400">
-            Try on Hugging Face (soon) · planned hosted demo for instant testing.
+            No cloud account needed · runs entirely on your machine
           </p>
         </div>
         <div class="relative">
-          <img
-            src="/assets/gradio-ui-preview.svg"
-            alt="Screenshot of Audiobook Maker V7 Gradio interface"
-            class="w-full rounded-2xl border border-slate-200 shadow-2xl dark:border-slate-700"
-          />
+          <img src="/assets/gradio-ui-preview.svg" alt="Screenshot of Audiobook Maker V7 Gradio interface"
+               class="w-full rounded-2xl border border-slate-200 shadow-2xl dark:border-slate-700" />
         </div>
       </section>
 
+      <!-- Features -->
       <section class="mt-10">
         <h3 class="text-2xl font-bold">Features</h3>
         <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
             <h4 class="font-semibold">📱 Easy Mobile Mode</h4>
-            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">One-tap Parse → Generate → Assemble → Download flow.</p>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">One-tap Parse → Generate → Assemble → Download flow. Works great on any phone browser.</p>
           </article>
-          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
             <h4 class="font-semibold">💾 Resume + Draft Memory</h4>
-            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Remembers your last project, typed drafts, and file sources.</p>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Remembers your last project, typed drafts, and file sources across sessions.</p>
           </article>
-          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
             <h4 class="font-semibold">🎤 Character Voices</h4>
-            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Auto-detected dialogue plus per-character voice assignments.</p>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Auto-detects dialogue and assigns per-character voices using EdgeTTS or Kokoro.</p>
           </article>
-          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
             <h4 class="font-semibold">☁️ Free Cloud Memory</h4>
-            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Back up and restore manifest progress with JSONBlob links.</p>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Back up and restore manifest progress with JSONBlob links — no account required.</p>
           </article>
-          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
             <h4 class="font-semibold">📚 M4B + Chapter Metadata</h4>
-            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Export chaptered audiobooks with normalization support.</p>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Export chaptered M4B audiobooks with loudness normalization and EPUB/PDF/TXT support.</p>
           </article>
-          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
             <h4 class="font-semibold">🛡️ Safe + Reliable Pipeline</h4>
-            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Atomic manifests, cache checks, and robust stage resume.</p>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Atomic manifests, cache validation, automatic fallback from cloud TTS to offline Kokoro.</p>
           </article>
         </div>
       </section>
 
+      <!-- Time Estimator -->
+      <section class="mt-10 rounded-3xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900/70 md:p-8">
+        <h3 class="text-2xl font-bold">How Long Will It Take?</h3>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Rough estimate based on typical content length and EdgeTTS cloud speed.</p>
+        <div class="mt-5 grid gap-4 sm:grid-cols-3">
+          <div>
+            <label class="block text-sm font-medium mb-1" for="est-pages">Number of pages</label>
+            <input id="est-pages" type="number" value="50" min="1" max="5000"
+                   class="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-base dark:border-slate-700 dark:bg-slate-800 min-h-[44px]" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-1" for="est-engine">TTS Engine</label>
+            <select id="est-engine" class="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-base dark:border-slate-700 dark:bg-slate-800 min-h-[44px]">
+              <option value="cloud">EdgeTTS (Cloud — faster)</option>
+              <option value="local">Kokoro (Offline — slower)</option>
+            </select>
+          </div>
+          <div class="flex items-end">
+            <button id="est-btn" class="w-full rounded-xl bg-brand-600 px-4 py-2.5 font-semibold text-white hover:bg-brand-500 min-h-[44px]">Estimate</button>
+          </div>
+        </div>
+        <div id="est-result" class="mt-4 hidden rounded-xl bg-indigo-50 px-5 py-4 dark:bg-indigo-900/30">
+          <p class="font-semibold text-indigo-800 dark:text-indigo-200" id="est-text"></p>
+          <p class="text-sm text-slate-600 dark:text-slate-300 mt-1" id="est-detail"></p>
+        </div>
+      </section>
+
+      <!-- Quick Start -->
       <section id="quickstart" class="mt-10">
         <h3 class="text-2xl font-bold">Quick Start</h3>
         <div class="mt-4 grid gap-4 md:grid-cols-2">
-          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
             <p class="text-xs font-bold uppercase tracking-wide text-indigo-500">Step 1</p>
             <p class="mt-2 font-semibold">Install dependencies</p>
             <pre id="cmd-1" class="mt-2 overflow-x-auto rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-950"><code>pip install -r requirements.txt</code></pre>
-            <button data-copy="cmd-1" class="copy-btn mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">Copy</button>
+            <button data-copy="cmd-1" class="copy-btn mt-2 rounded-xl border border-slate-300 px-4 py-2 text-sm dark:border-slate-700 min-h-[40px]">Copy</button>
           </article>
-          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
             <p class="text-xs font-bold uppercase tracking-wide text-indigo-500">Step 2</p>
             <p class="mt-2 font-semibold">Run the app</p>
             <pre id="cmd-2" class="mt-2 overflow-x-auto rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-950"><code>python3 audiobook_creator_v7.py</code></pre>
-            <button data-copy="cmd-2" class="copy-btn mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">Copy</button>
+            <button data-copy="cmd-2" class="copy-btn mt-2 rounded-xl border border-slate-300 px-4 py-2 text-sm dark:border-slate-700 min-h-[40px]">Copy</button>
           </article>
-          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-            <p class="text-xs font-bold uppercase tracking-wide text-indigo-500">Step 3</p>
-            <p class="mt-2 font-semibold">Phone public link (optional)</p>
+          <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+            <p class="text-xs font-bold uppercase tracking-wide text-indigo-500">Step 3 (optional)</p>
+            <p class="mt-2 font-semibold">Phone public link</p>
             <pre id="cmd-3" class="mt-2 overflow-x-auto rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-950"><code>GRADIO_SHARE=1 python3 audiobook_creator_v7.py</code></pre>
-            <button data-copy="cmd-3" class="copy-btn mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">Copy</button>
+            <button data-copy="cmd-3" class="copy-btn mt-2 rounded-xl border border-slate-300 px-4 py-2 text-sm dark:border-slate-700 min-h-[40px]">Copy</button>
           </article>
-          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
             <p class="text-xs font-bold uppercase tracking-wide text-indigo-500">Step 4</p>
             <p class="mt-2 font-semibold">Open in browser</p>
             <pre id="cmd-4" class="mt-2 overflow-x-auto rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-950"><code>http://localhost:7860</code></pre>
-            <button data-copy="cmd-4" class="copy-btn mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">Copy</button>
+            <button data-copy="cmd-4" class="copy-btn mt-2 rounded-xl border border-slate-300 px-4 py-2 text-sm dark:border-slate-700 min-h-[40px]">Copy</button>
           </article>
         </div>
       </section>
 
+      <!-- Install + Mobile workflow -->
       <section class="mt-10 grid gap-4 lg:grid-cols-2">
         <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-          <h3 class="text-xl font-bold">Mobile Workflow</h3>
-          <div class="mt-4 rounded-3xl border border-slate-300 bg-slate-100 p-4 dark:border-slate-700 dark:bg-slate-950">
-            <div class="mx-auto w-56 rounded-[2rem] border-4 border-slate-800 bg-slate-900 p-3 text-slate-100">
-              <p class="text-center text-xs text-slate-400">📱 Easy Mobile Mode</p>
-              <ol class="mt-3 space-y-2 text-sm">
-                <li>1. Paste text / URL / file</li>
-                <li>2. Tap Generate once</li>
-                <li>3. Watch live status + ETA</li>
-                <li>4. Download audiobook</li>
+          <h3 class="text-xl font-bold">Install to Home Screen</h3>
+          <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Get a native app icon for instant access.</p>
+          <div class="mt-4 space-y-3">
+            <div class="rounded-xl bg-slate-50 dark:bg-slate-800 p-3">
+              <p class="text-sm font-semibold">🤖 Android (Chrome)</p>
+              <ol class="mt-1 text-xs text-slate-600 dark:text-slate-300 space-y-0.5 list-decimal list-inside">
+                <li>Open the launcher URL in Chrome</li>
+                <li>Tap the 3-dot menu ⋮</li>
+                <li>Tap <strong>Add to Home screen</strong></li>
+                <li>Confirm — done!</li>
+              </ol>
+            </div>
+            <div class="rounded-xl bg-slate-50 dark:bg-slate-800 p-3">
+              <p class="text-sm font-semibold">🍎 iPhone / iPad (Safari)</p>
+              <ol class="mt-1 text-xs text-slate-600 dark:text-slate-300 space-y-0.5 list-decimal list-inside">
+                <li>Open the launcher URL in Safari</li>
+                <li>Tap the Share button <strong>↑</strong> at the bottom</li>
+                <li>Scroll down and tap <strong>Add to Home Screen</strong></li>
+                <li>Tap <strong>Add</strong> — done!</li>
               </ol>
             </div>
           </div>
         </article>
 
         <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <h3 class="text-xl font-bold">Mobile Workflow</h3>
+          <div class="mt-4 rounded-3xl border border-slate-300 bg-slate-100 p-4 dark:border-slate-700 dark:bg-slate-950">
+            <div class="mx-auto w-56 rounded-[2rem] border-4 border-slate-800 bg-slate-900 p-3 text-slate-100">
+              <p class="text-center text-xs text-slate-400">📱 Easy Mobile Mode</p>
+              <ol class="mt-3 space-y-2 text-sm">
+                <li class="flex items-center gap-2"><span class="step-num bg-indigo-600 text-white text-xs">1</span>Paste text / URL / file</li>
+                <li class="flex items-center gap-2"><span class="step-num bg-indigo-600 text-white text-xs">2</span>Tap Generate once</li>
+                <li class="flex items-center gap-2"><span class="step-num bg-indigo-600 text-white text-xs">3</span>Watch live progress + ETA</li>
+                <li class="flex items-center gap-2"><span class="step-num bg-indigo-600 text-white text-xs">4</span>Play or Download</li>
+              </ol>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <!-- Launcher API -->
+      <section class="mt-10">
+        <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
           <h3 class="text-xl font-bold">Launcher API + Health</h3>
-          <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Use these endpoints for automation and checks.</p>
+          <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Use these endpoints for automation and status checks.</p>
           <div class="mt-3 flex flex-wrap gap-2">
-            <a href="/api/launch" class="rounded-lg bg-slate-900 px-3 py-1.5 text-sm text-white dark:bg-slate-100 dark:text-slate-900">/api/launch</a>
-            <a href="/api/health" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">/api/health</a>
+            <a href="/api/launch" class="rounded-xl bg-slate-900 px-3 py-2 text-sm text-white dark:bg-slate-100 dark:text-slate-900 min-h-[40px] flex items-center">/api/launch</a>
+            <a href="/api/health" class="rounded-xl border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 min-h-[40px] flex items-center">/api/health</a>
           </div>
           <pre id="api-output" class="mt-3 max-h-64 overflow-auto rounded-xl bg-slate-100 p-3 text-xs dark:bg-slate-950"><code>Loading...</code></pre>
           <p id="pwa-status" class="mt-2 text-xs text-slate-500 dark:text-slate-400">Checking launcher status...</p>
         </article>
       </section>
+
+      <!-- FAQ -->
+      <section class="mt-10">
+        <h3 class="text-2xl font-bold">FAQ</h3>
+        <div class="mt-4 space-y-2" id="faq">
+
+          <details class="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+            <summary class="flex items-center justify-between p-5 font-semibold">
+              Does this work offline?
+              <span class="faq-icon text-slate-400 text-xl leading-none select-none">+</span>
+            </summary>
+            <p class="px-5 pb-5 text-sm text-slate-600 dark:text-slate-300">
+              Yes — the <strong>Kokoro</strong> offline TTS engine works completely without internet. The cloud EdgeTTS engine requires a connection but is faster. Easy Mode automatically falls back to Kokoro if EdgeTTS fails.
+            </p>
+          </details>
+
+          <details class="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+            <summary class="flex items-center justify-between p-5 font-semibold">
+              What file formats are supported?
+              <span class="faq-icon text-slate-400 text-xl leading-none select-none">+</span>
+            </summary>
+            <p class="px-5 pb-5 text-sm text-slate-600 dark:text-slate-300">
+              <strong>Input:</strong> EPUB, PDF, TXT, or any plain text (pasted or from a URL).<br/>
+              <strong>Output:</strong> M4B (chaptered, with metadata) or MP3. M4B is recommended for listening apps like Apple Books and Overcast.
+            </p>
+          </details>
+
+          <details class="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+            <summary class="flex items-center justify-between p-5 font-semibold">
+              Can I resume if generation stops halfway?
+              <span class="faq-icon text-slate-400 text-xl leading-none select-none">+</span>
+            </summary>
+            <p class="px-5 pb-5 text-sm text-slate-600 dark:text-slate-300">
+              Yes. Every generated segment is cached to disk. If you restart, already-generated segments are reused. Use "Save progress to free cloud memory" in Easy Mode to sync progress across devices via a JSONBlob URL.
+            </p>
+          </details>
+
+          <details class="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+            <summary class="flex items-center justify-between p-5 font-semibold">
+              Do I need a GPU?
+              <span class="faq-icon text-slate-400 text-xl leading-none select-none">+</span>
+            </summary>
+            <p class="px-5 pb-5 text-sm text-slate-600 dark:text-slate-300">
+              No. EdgeTTS runs in the cloud (no local compute). Kokoro runs on CPU via ONNX and works fine without a GPU — though a GPU can speed it up significantly on large books.
+            </p>
+          </details>
+
+          <details class="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+            <summary class="flex items-center justify-between p-5 font-semibold">
+              Is my content private?
+              <span class="faq-icon text-slate-400 text-xl leading-none select-none">+</span>
+            </summary>
+            <p class="px-5 pb-5 text-sm text-slate-600 dark:text-slate-300">
+              When using EdgeTTS, text segments are sent to Microsoft's TTS API to generate audio. When using Kokoro, everything stays local. The optional JSONBlob cloud backup only stores the manifest (metadata/progress), not the audio itself.
+            </p>
+          </details>
+
+          <details class="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+            <summary class="flex items-center justify-between p-5 font-semibold">
+              What are the file size limits?
+              <span class="faq-icon text-slate-400 text-xl leading-none select-none">+</span>
+            </summary>
+            <p class="px-5 pb-5 text-sm text-slate-600 dark:text-slate-300">
+              The default upload limit is <strong>500 MB</strong> per file (configurable via the <code>ABM_MAX_UPLOAD_FILE_BYTES</code> environment variable). For very large books, consider splitting them into parts for better performance.
+            </p>
+          </details>
+
+          <details class="rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+            <summary class="flex items-center justify-between p-5 font-semibold">
+              How do I use it on my phone?
+              <span class="faq-icon text-slate-400 text-xl leading-none select-none">+</span>
+            </summary>
+            <p class="px-5 pb-5 text-sm text-slate-600 dark:text-slate-300">
+              Run the app with <code>GRADIO_SHARE=1 python3 audiobook_creator_v7.py</code> — this creates a temporary public URL (expires after a session). Scan the QR code shown in the terminal. For a permanent URL, host on a VPS or use a tunneling tool like <code>ngrok</code> or <code>cloudflared</code>.
+            </p>
+          </details>
+
+        </div>
+      </section>
+
     </main>
 
     <script>
-      let installPromptEvent = null;
-      const installBanner = document.getElementById("install-banner");
-      const installNow = document.getElementById("install-now");
-      const installDismiss = document.getElementById("install-dismiss");
-      const statusNode = document.getElementById("pwa-status");
-
+      // ── Theme ────────────────────────────────────────────────────────────────
       const preferredTheme = localStorage.getItem("abm-theme");
       if (preferredTheme === "light") document.documentElement.classList.remove("dark");
-
       document.getElementById("theme-toggle").addEventListener("click", () => {
         const html = document.documentElement;
         html.classList.toggle("dark");
         localStorage.setItem("abm-theme", html.classList.contains("dark") ? "dark" : "light");
       });
 
+      // ── Copy buttons ─────────────────────────────────────────────────────────
       for (const btn of document.querySelectorAll(".copy-btn")) {
         btn.addEventListener("click", async () => {
           const target = document.getElementById(btn.dataset.copy);
@@ -212,35 +344,45 @@
           if (!text) return;
           try {
             await navigator.clipboard.writeText(text);
-            btn.textContent = "Copied";
-            setTimeout(() => (btn.textContent = "Copy"), 1200);
-          } catch (_err) {
+            btn.textContent = "Copied ✓";
+            setTimeout(() => (btn.textContent = "Copy"), 1400);
+          } catch {
             btn.textContent = "Failed";
           }
         });
       }
 
+      // ── Share ─────────────────────────────────────────────────────────────────
       document.getElementById("share-btn").addEventListener("click", async () => {
-        const data = {
-          title: "Audiobook Maker V7",
-          text: "Open the mobile audiobook launcher",
-          url: window.location.href
-        };
         try {
           if (navigator.share) {
-            await navigator.share(data);
+            await navigator.share({ title: "Audiobook Maker V7", text: "Open the mobile audiobook launcher", url: window.location.href });
           } else {
             await navigator.clipboard.writeText(window.location.href);
             alert("Link copied to clipboard.");
           }
-        } catch (_err) {}
+        } catch {}
       });
 
+      // ── Service Worker ────────────────────────────────────────────────────────
+      const statusNode = document.getElementById("pwa-status");
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker
           .register("/service-worker.js")
           .then(() => (statusNode.textContent = "Offline launcher cache enabled."))
           .catch(() => (statusNode.textContent = "Service worker registration failed."));
+      }
+
+      // ── PWA install banner ────────────────────────────────────────────────────
+      let installPromptEvent = null;
+      const installBanner = document.getElementById("install-banner");
+      const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+
+      if (isIOS && !isStandalone) {
+        installBanner.classList.remove("hidden");
+        document.getElementById("ios-hint").classList.remove("hidden");
+        document.getElementById("install-now").classList.add("hidden");
       }
 
       window.addEventListener("beforeinstallprompt", (event) => {
@@ -249,31 +391,49 @@
         installBanner.classList.remove("hidden");
       });
 
-      installNow.addEventListener("click", async () => {
+      document.getElementById("install-now").addEventListener("click", async () => {
         if (!installPromptEvent) return;
         await installPromptEvent.prompt();
         installBanner.classList.add("hidden");
       });
+      document.getElementById("install-dismiss").addEventListener("click", () => installBanner.classList.add("hidden"));
 
-      installDismiss.addEventListener("click", () => installBanner.classList.add("hidden"));
-
+      // ── API output ────────────────────────────────────────────────────────────
       fetch("/api/launch")
         .then((res) => res.json())
-        .then((data) => {
-          document.getElementById("api-output").textContent = JSON.stringify(data, null, 2);
-        })
-        .catch(() => {
-          document.getElementById("api-output").textContent = "Could not load /api/launch.";
-        });
+        .then((data) => { document.getElementById("api-output").textContent = JSON.stringify(data, null, 2); })
+        .catch(() => { document.getElementById("api-output").textContent = "Could not load /api/launch."; });
 
       fetch("/api/health")
         .then((res) => res.json())
-        .then((data) => {
-          if (data && data.status === "ok") {
-            statusNode.textContent += " API healthy.";
-          }
-        })
+        .then((data) => { if (data && data.status === "ok") statusNode.textContent += " · API healthy."; })
         .catch(() => {});
+
+      // ── Time estimator ────────────────────────────────────────────────────────
+      document.getElementById("est-btn").addEventListener("click", () => {
+        const pages = Math.max(1, parseInt(document.getElementById("est-pages").value, 10) || 50);
+        const engine = document.getElementById("est-engine").value;
+        // ~250 words/page, ~5 chars/word, cloud=28 chars/sec, local=16 chars/sec
+        const charsPerPage = 250 * 5;
+        const cps = engine === "cloud" ? 28 : 16;
+        const totalChars = pages * charsPerPage;
+        const genSeconds = Math.round(totalChars / cps);
+        // Final audiobook duration: ~1.5 min/page at natural speech
+        const audioDurationMin = Math.round(pages * 1.5);
+        const genMin = Math.floor(genSeconds / 60);
+        const genSec = genSeconds % 60;
+        const result = document.getElementById("est-result");
+        result.classList.remove("hidden");
+        document.getElementById("est-text").textContent =
+          `~${genMin > 0 ? genMin + " min " : ""}${genSec}s generation time · ~${audioDurationMin} min final audiobook`;
+        document.getElementById("est-detail").textContent =
+          `Based on ${pages} pages × ~1,250 chars/page using ${engine === "cloud" ? "EdgeTTS cloud (28 chars/sec)" : "Kokoro offline (16 chars/sec)"}. Actual times vary by chapter count and network speed.`;
+      });
+
+      // ── FAQ accordion ─────────────────────────────────────────────────────────
+      document.querySelectorAll("#faq details").forEach((el) => {
+        el.addEventListener("toggle", () => {});
+      });
     </script>
   </body>
 </html>

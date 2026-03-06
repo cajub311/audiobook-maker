@@ -16,6 +16,7 @@ import gc
 import hashlib
 import ipaddress
 import json
+import logging
 import os
 import re
 import shutil
@@ -51,12 +52,39 @@ DEFAULT_FFMPEG_TIMEOUT_S = 240
 DEFAULT_FFMPEG_RETRIES = 2
 MAX_REMOTE_TEXT_BYTES = 2 * 1024 * 1024
 MAX_CLOUD_MANIFEST_BYTES = 1024 * 1024
+# Uploaded files larger than this are rejected with a clear error message.
+MAX_UPLOAD_FILE_BYTES: int = int(os.getenv("ABM_MAX_UPLOAD_FILE_BYTES", str(500 * 1024 * 1024)))
 USER_AGENT = "AudiobookCreatorV7/1.0 (+mobile-safe-fetch)"
 VOICE_BROWSER_PAGE_SIZE = 12
 PREVIEW_SAMPLE_TEXT = (
     "This is a ten second voice preview for Audiobook Maker version seven. "
     "You are hearing the selected voice speaking naturally with clear pacing."
 )
+
+# Module-level logger — handlers/level configured by the caller or basicConfig below.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+_log = logging.getLogger("audiobook_creator")
+
+
+def _categorize_error(exc: Exception) -> str:
+    """Return a user-friendly, categorised error string for UI display."""
+    msg = str(exc)
+    lower = msg.lower()
+    if any(t in lower for t in ("timeout", "timed out", "connection", "network", "ssl", "http error", "urlopen")):
+        return f"Network error — {msg}"
+    if any(t in lower for t in ("no such file", "not found", "permission denied", "is a directory")):
+        return f"File error — {msg}"
+    if any(t in lower for t in ("ffmpeg", "ffprobe", "codec", "concat")):
+        return f"Assembly error (FFmpeg) — {msg}"
+    if any(t in lower for t in ("invalid", "parse", "decode", "json", "format", "encoding")):
+        return f"Input error — {msg}"
+    if any(t in lower for t in ("tts", "voice", "engine", "kokoro", "edge")):
+        return f"TTS error — {msg}"
+    return msg
 
 
 def ensure_runtime_dirs() -> None:
@@ -568,6 +596,17 @@ def create_tts_engine(engine_name: str) -> TTSEngine:
 
 
 class AudioCache:
+    """Persistent LRU disk cache for generated TTS audio segments.
+
+    Each entry is keyed by an MD5 of (text, voice, engine, speed, pronunciation_hash,
+    speed_mode) so identical requests are served instantly without re-calling the TTS
+    engine. The cache index is written atomically with a ``.bak`` backup for recovery.
+
+    When ``speed_mode`` is ``"post_process"``, the speed value is normalised to 1.0 in
+    the cache key so a cached result can be reused across different playback speeds (the
+    speed adjustment is applied later in FFmpeg during assembly).
+    """
+
     def __init__(self, cache_dir: str | Path = CACHE_DIR, max_size_mb: int = 500):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -745,6 +784,14 @@ class AudioCache:
 
 
 class PronunciationDict:
+    """Word-replacement pronunciation overrides applied to TTS input text.
+
+    Replacements are whole-word, case-insensitive regex substitutions applied
+    before text is sent to the TTS engine. For example ``{"Worcestershire": "Wooster-sher"}``
+    corrects a common mis-pronunciation without affecting the raw source text stored
+    in the manifest.
+    """
+
     def __init__(self, overrides: Optional[dict[str, str]] = None):
         self.overrides = overrides or {}
 
@@ -910,6 +957,16 @@ class AlternationTracker:
 
 
 def detect_all_dialogue(chapter_text: str) -> list[dict[str, Any]]:
+    """Return a list of dialogue spans with speaker attribution for a chapter.
+
+    Detection runs three strategies in priority order:
+    1. **Regex** — matches ``"quote" Speaker said`` and ``Speaker said, "quote"`` patterns.
+    2. **spaCy NER** — uses named-entity recognition to attribute unmatched quotes.
+    3. **Alternation** — falls back to alternating-speaker heuristic for unresolved quotes.
+
+    Each returned dict has keys: ``start``, ``end``, ``dialogue``, ``speaker``, ``method``.
+    Overlapping spans are deduplicated, keeping the longest match.
+    """
     tracker = AlternationTracker()
     spacy_attr = SpacyAttributor()
 
@@ -1146,7 +1203,13 @@ def extract_source_chapters(
     raw_text: Optional[str] = None,
 ) -> tuple[list[dict[str, str]], dict[str, str], str, str]:
     if raw_text and raw_text.strip():
-        chapters = split_text_into_chapters(raw_text.strip())
+        raw = raw_text.strip()
+        if len(raw.encode("utf-8")) > MAX_UPLOAD_FILE_BYTES:
+            raise ValueError(
+                f"Pasted text is too large ({len(raw) // 1024} KB). "
+                "Please split it into smaller sections."
+            )
+        chapters = split_text_into_chapters(raw)
         return chapters, {"title": "Pasted Text", "author": "Unknown"}, "inline_text", "text"
 
     if url and url.strip():
@@ -1158,6 +1221,16 @@ def extract_source_chapters(
     if not input_path:
         raise ValueError("No input provided. Upload a file, enter a URL, or paste text.")
     path = Path(input_path)
+    if not path.exists():
+        raise ValueError(f"File not found: {path.name}. Please re-upload the file.")
+    file_size = path.stat().st_size
+    if file_size > MAX_UPLOAD_FILE_BYTES:
+        size_mb = file_size // (1024 * 1024)
+        limit_mb = MAX_UPLOAD_FILE_BYTES // (1024 * 1024)
+        raise ValueError(
+            f"File '{path.name}' is {size_mb} MB, which exceeds the {limit_mb} MB limit. "
+            "Split the file into smaller parts and process them separately."
+        )
     ext = path.suffix.lower()
     if ext == ".epub":
         chapters, meta = extract_chapters_from_epub(str(path))
@@ -1275,6 +1348,12 @@ def update_run_state(
 
 
 def ensure_manifest_defaults(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Back-fill missing keys on a manifest loaded from disk or the cloud.
+
+    Called after ``load_manifest`` / ``load_manifest_from_free_cloud`` to guarantee
+    that all downstream pipeline code can rely on the full manifest schema, even if
+    the file was written by an older version of the application.
+    """
     manifest.setdefault("settings", {})
     manifest.setdefault("book", {})
     manifest.setdefault("chapters", [])
@@ -1322,6 +1401,12 @@ def ensure_manifest_defaults(manifest: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_manifest(settings: dict[str, Any], chapters: list[dict[str, Any]], book: dict[str, Any]) -> dict[str, Any]:
+    """Construct a fresh manifest dict from parsed source data.
+
+    The manifest is the single source of truth for the entire pipeline. It records
+    the book metadata, per-segment audio cache references, generation progress counters,
+    and runtime state flags used for resumption and cloud backup.
+    """
     total_segments = sum(len(ch.get("segments", [])) for ch in chapters)
     completed_segments = sum(
         1 for ch in chapters for seg in ch.get("segments", []) if seg.get("status") == "cached"
@@ -1361,6 +1446,19 @@ def stage_parse(
     url: Optional[str] = None,
     raw_text: Optional[str] = None,
 ) -> tuple[dict[str, Any], str]:
+    """Stage 1: ingest source text and build the pipeline manifest.
+
+    Accepts one of three mutually exclusive input types (file path, URL, or raw text),
+    extracts chapters using the appropriate parser (EPUB/PDF/TXT/URL/plain), runs
+    dialogue detection on each chapter, checks the audio cache for pre-existing
+    segments, and writes an atomic manifest JSON to ``MANIFESTS_DIR``.
+
+    Returns:
+        A ``(manifest, manifest_path)`` tuple. The manifest path is a deterministic
+        hash-based filename so the same source always maps to the same project.
+    """
+    _t0 = time.monotonic()
+    _log.info("Stage 1 (parse) started — engine=%s", (settings or {}).get("tts_engine", "edge-tts"))
     ensure_runtime_dirs()
     settings = dict(settings or {})
     engine_name = settings.get("tts_engine", "edge-tts")
@@ -1547,6 +1645,12 @@ def stage_parse(
     manifest_path = str(MANIFESTS_DIR / manifest_name)
     update_run_state(manifest, "parsed", "Parse completed", manifest_path=None)
     save_manifest(manifest, manifest_path)
+    _log.info(
+        "Stage 1 (parse) done in %.1fs — %d chapters, %d segments",
+        time.monotonic() - _t0,
+        len(manifest.get("chapters", [])),
+        manifest.get("progress", {}).get("total_segments", 0),
+    )
     return manifest, manifest_path
 
 
@@ -1556,6 +1660,20 @@ async def stage_generate(
     cancel_event: Optional[threading.Event] = None,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> dict[str, Any]:
+    """Stage 2: generate TTS audio for all pending manifest segments.
+
+    Uses an async producer/worker pool bounded by ``engine.max_concurrent`` to call
+    the TTS engine in parallel. Each generated audio file is stored in the disk cache
+    and the segment's ``status`` is updated to ``"cached"``. Segments already cached
+    are skipped. The manifest is saved after each segment to enable crash-safe resumption.
+
+    The ``progress_callback(done, total, description)`` is called after each segment
+    so the caller can update a progress bar or log output.
+
+    Returns the updated manifest. Sets ``runtime.state`` to ``"generated"``,
+    ``"failed"``, or ``"cancelled"`` depending on the outcome.
+    """
+    _t0 = time.monotonic()
     ensure_runtime_dirs()
     manifest = ensure_manifest_defaults(manifest)
     settings = manifest.get("settings", {})
@@ -1584,6 +1702,7 @@ async def stage_generate(
 
     total = len(pending)
     done = 0
+    _log.info("Stage 2 (generate) started — %d pending segments, engine=%s", total, engine_name)
     manifest["progress"]["generation_started"] = manifest["progress"].get("generation_started") or now_iso()
     update_run_state(manifest, "generating", "Generating segment audio", manifest_path)
 
@@ -1707,10 +1826,13 @@ async def stage_generate(
         save_manifest(manifest, manifest_path)
     if cancel_event and cancel_event.is_set():
         update_run_state(manifest, "cancelled", "Generation cancelled by user", manifest_path)
+        _log.info("Stage 2 (generate) cancelled after %.1fs", time.monotonic() - _t0)
     elif any(seg.get("status") == "error" for ch in manifest["chapters"] for seg in ch["segments"]):
         update_run_state(manifest, "failed", "Generation completed with errors", manifest_path)
+        _log.warning("Stage 2 (generate) finished with errors in %.1fs", time.monotonic() - _t0)
     else:
         update_run_state(manifest, "generated", "All segments generated", manifest_path)
+        _log.info("Stage 2 (generate) complete in %.1fs", time.monotonic() - _t0)
     return manifest
 
 
@@ -1846,9 +1968,27 @@ def stage_assemble(
     manifest_path: Optional[str] = None,
     cancel_event: Optional[threading.Event] = None,
 ) -> str:
+    """Stage 3: concatenate cached audio segments into a final audiobook file.
+
+    Pipeline sub-steps (each guarded by an idempotency flag for resumption):
+    1. **Concat** — FFmpeg concat filter joins all segments with silence gaps inserted
+       between dialogue turns, paragraph breaks, scene breaks, and chapters.
+    2. **Music mix** — optional background music ducked to ``music_duck_db`` dB.
+    3. **Speed adjust** — ``atempo`` filter chain applied when ``speed_mode != "native"``.
+    4. **Loudness normalise** — two-pass EBU R128 normalization to ``-19 LUFS``.
+    5. **Final encode** — output as M4B (AAC + chapter metadata) or MP3.
+
+    Returns the absolute path to the output file in ``OUTPUT_DIR``.
+    Raises ``RuntimeError`` if FFmpeg is missing or any sub-step fails after retries.
+    """
+    _t0 = time.monotonic()
+    _log.info("Stage 3 (assemble) started — format=%s normalize=%s", output_format, normalize_audio)
     ensure_runtime_dirs()
     if not ffmpeg_exists():
-        raise RuntimeError("FFmpeg and ffprobe are required for assembly stage.")
+        raise RuntimeError(
+            "FFmpeg and ffprobe are required for assembly. "
+            "Install with: sudo apt-get install ffmpeg  (Linux) or brew install ffmpeg  (macOS)."
+        )
     update_run_state(manifest, "assembling", "Starting assembly", manifest_path)
 
     chapter_gap = create_silence_file(2.0, TEMP_DIR / "silence_2s.mp3")
@@ -2021,6 +2161,7 @@ def stage_assemble(
 
     mark("output_done", True, f"Output ready: {output_path.name}")
     update_run_state(manifest, "completed", "Assembly completed", manifest_path)
+    _log.info("Stage 3 (assemble) done in %.1fs — output: %s", time.monotonic() - _t0, output_path.name)
     return str(output_path)
 
 
@@ -2974,7 +3115,18 @@ def build_ui():
                     gr.Textbox(value=cloud_url_effective),
                 )
             except Exception as exc:
-                return (f"Parse failed: {exc}", "_No data yet._", "_No chapter preview yet._", [], [], "", "", "", gr.Textbox(value=""))
+                _log.exception("Parse failed")
+                return (
+                    f"Parse failed: {_categorize_error(exc)}",
+                    "_No data yet._",
+                    "_No chapter preview yet._",
+                    [],
+                    [],
+                    "",
+                    "",
+                    "",
+                    gr.Textbox(value=""),
+                )
 
         def on_cancel(manifest_path: str):
             cancel_event.set()
@@ -3079,6 +3231,16 @@ def build_ui():
                 save_manifest(manifest, manifest_path)
 
                 run_started = time.time()
+                total_segs = sum(
+                    len(ch.get("segments", [])) for ch in manifest.get("chapters", [])
+                )
+                cached_segs = sum(
+                    1
+                    for ch in manifest.get("chapters", [])
+                    for seg in ch.get("segments", [])
+                    if seg.get("status") == "cached"
+                )
+                pending_segs = max(0, total_segs - cached_segs)
 
                 def progress_cb(done: int, total: int, desc: str) -> None:
                     ratio = done / total if total else 1.0
@@ -3086,8 +3248,9 @@ def build_ui():
                     rate = done / elapsed if done > 0 else 0.0
                     remaining = max(0, total - done)
                     eta = (remaining / rate) if rate > 0 else 0.0
+                    pct = int(ratio * 100)
                     rich_desc = (
-                        f"Segment {done}/{total} · ETA {format_eta(eta)}"
+                        f"[{pct}%] Segment {done}/{total} · ETA {format_eta(eta)}"
                         + (f" · {desc}" if desc else "")
                     )
                     progress(ratio, desc=rich_desc)
@@ -3146,14 +3309,16 @@ def build_ui():
                     runtime_state_badge("completed", "Output ready" if not cloud_backup_note else "Output ready (check note)"),
                 )
             except Exception as exc:
+                _log.exception("Generate stage failed")
+                err_msg = _categorize_error(exc)
                 if "manifest" in locals():
                     update_run_state(manifest, "failed", f"Generation failed: {exc}", manifest_path)
                 return (
-                    f"Generation failed: {exc}",
+                    f"Generation failed: {err_msg}",
                     "_No data yet._",
                     None,
                     None,
-                    runtime_state_badge("failed", "Check logs and retry"),
+                    runtime_state_badge("failed", "Check error message above and retry"),
                 )
 
         def on_refresh_preflight():
@@ -3405,9 +3570,10 @@ def build_ui():
                     cloud_url,
                 )
             except Exception as exc:
+                _log.exception("Quick generate failed")
                 return (
-                    f"Quick mode failed: {exc}",
-                    runtime_state_badge("failed", "Quick flow failed"),
+                    f"Failed: {_categorize_error(exc)}",
+                    runtime_state_badge("failed", "Check error message above"),
                     "_No chapter preview yet._",
                     None,
                     None,
@@ -3697,7 +3863,9 @@ def main() -> None:
     ensure_runtime_dirs()
     app = build_ui()
     share_flag = str(os.environ.get("GRADIO_SHARE", "0")).lower() in {"1", "true", "yes"}
-    app.launch(server_name="0.0.0.0", server_port=7860, show_api=False, share=share_flag)
+    port = int(os.environ.get("ABM_GRADIO_PORT", os.environ.get("PORT", "7860")))
+    _log.info("Launching Audiobook Creator V7 on port %d (share=%s)", port, share_flag)
+    app.launch(server_name="0.0.0.0", server_port=port, show_api=False, share=share_flag)
 
 
 if __name__ == "__main__":
