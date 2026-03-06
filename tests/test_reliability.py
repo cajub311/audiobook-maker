@@ -19,6 +19,7 @@ from audiobook_creator_v7 import (
     validate_local_input_file,
 )
 from nlp.dialogue import detect_all_dialogue, detect_dialogue_with_strategy, normalize_dialogue_strategy
+from nlp.pronunciation import PronunciationDict
 
 
 def write_silence_wav(path: Path, duration_s: float = 0.5, sample_rate: int = 24000) -> None:
@@ -126,6 +127,11 @@ class ReliabilityTests(unittest.TestCase):
         kokoro = create_tts_engine("kokoro")
         self.assertGreaterEqual(edge.max_concurrent, 1)
         self.assertGreaterEqual(kokoro.max_concurrent, 1)
+
+    def test_pronunciation_dict_case_insensitive_word_boundary(self):
+        rules = PronunciationDict({"tom": "TOM"})
+        out = rules.apply("Tom met atom and TOM.")
+        self.assertEqual(out, "TOM met atom and TOM.")
 
 
 if __name__ == "__main__":

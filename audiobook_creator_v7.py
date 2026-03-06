@@ -67,6 +67,7 @@ from config import (
     VOICE_BROWSER_PAGE_SIZE,
 )
 from nlp.dialogue import AlternationTracker, detect_dialogue_with_strategy, normalize_dialogue_strategy
+from nlp.pronunciation import PronunciationDict
 from parsers.source import (
     chunk_text,
     detect_scene_breaks,
@@ -505,26 +506,6 @@ def _audio_cache_deps() -> AudioCacheDeps:
 class AudioCache(AudioCacheImpl):
     def __init__(self, cache_dir: str | Path = CACHE_DIR, max_size_mb: int = 500):
         super().__init__(cache_dir=cache_dir, max_size_mb=max_size_mb, deps=_audio_cache_deps())
-
-
-class PronunciationDict:
-    def __init__(self, overrides: Optional[dict[str, str]] = None):
-        self.overrides = overrides or {}
-
-    def apply(self, text: str) -> str:
-        output = text
-        for word, replacement in self.overrides.items():
-            pattern = re.compile(r"\b" + re.escape(word) + r"\b", re.IGNORECASE)
-            output = pattern.sub(replacement, output)
-        return output
-
-    def save(self, path: str | Path) -> None:
-        atomic_json_write(Path(path), self.overrides)
-
-    @classmethod
-    def load(cls, path: str | Path) -> "PronunciationDict":
-        with open(path, "r", encoding="utf-8") as f:
-            return cls(json.load(f))
 
 
 def extract_text_from_url(url: str) -> str:
@@ -2004,6 +1985,12 @@ def build_ui():
                 placeholder="Paste your story/article/book text here, then tap Create Audiobook.",
                 visible=True,
             )
+            quick_voice_choices = voices_for_engine("edge-tts")
+            quick_voice_simple = gr.Dropdown(
+                label="Voice",
+                choices=quick_voice_choices,
+                value=(quick_voice_choices[0] if quick_voice_choices else None),
+            )
             with gr.Accordion("Show advanced options", open=False):
                 quick_input_mode = gr.Radio(["File", "URL", "Paste Text"], value="Paste Text", label="Input mode")
                 quick_file_input = gr.File(
@@ -2147,6 +2134,7 @@ def build_ui():
             adv_mode = str(draft.get("adv_input_mode", "File") or "File")
             adv_dialogue_strategy = dialogue_strategy_value_to_label(str(draft.get("adv_dialogue_strategy", DEFAULT_DIALOGUE_STRATEGY) or DEFAULT_DIALOGUE_STRATEGY))
             quick_mode = str(draft.get("quick_input_mode", "Paste Text") or "Paste Text")
+            quick_voice_value = str(draft.get("quick_voice_simple", "") or "")
             adv_file_path = existing_path_or_empty(str(draft.get("adv_file_path", "") or ""))
             quick_file_path = existing_path_or_empty(str(draft.get("quick_file_path", "") or ""))
             adv_msg = f"Remembered file: `{adv_file_path}`" if adv_file_path else ""
@@ -2160,6 +2148,7 @@ def build_ui():
                 gr.Radio(value=quick_mode),
                 gr.Textbox(value=str(draft.get("quick_url", "") or "")),
                 gr.Textbox(value=str(draft.get("quick_text", "") or "")),
+                gr.Dropdown(value=quick_voice_value),
                 gr.Radio(value=str(draft.get("quick_output_format", "MP3") or "MP3")),
                 gr.Checkbox(value=bool(draft.get("quick_free_cloud", True))),
                 gr.Textbox(value=str(draft.get("cloud_manifest_url", "") or "")),
@@ -2178,6 +2167,7 @@ def build_ui():
             quick_mode: str,
             quick_url: str,
             quick_text: str,
+            quick_voice_simple_val: str,
             quick_output_fmt: str,
             quick_free_cloud_val: bool,
             cloud_manifest_val: str,
@@ -2193,6 +2183,7 @@ def build_ui():
             draft["quick_input_mode"] = quick_mode
             draft["quick_url"] = quick_url
             draft["quick_text"] = quick_text
+            draft["quick_voice_simple"] = str(quick_voice_simple_val or "")
             draft["quick_output_format"] = quick_output_fmt
             draft["quick_free_cloud"] = bool(quick_free_cloud_val)
             draft["cloud_manifest_url"] = cloud_manifest_val
@@ -2848,6 +2839,7 @@ def build_ui():
             remembered_quick_file: str,
             url: str,
             text: str,
+            quick_voice: str,
             output_fmt: str,
             use_cloud_memory: bool,
             progress=gr.Progress(),
@@ -2881,8 +2873,9 @@ def build_ui():
                         "",
                     )
                 primary_engine = "edge-tts"
-                narrator = "en-US-GuyNeural"
-                dialogue = "en-US-JennyNeural"
+                selected_voice = str(quick_voice or "en-US-GuyNeural")
+                narrator = selected_voice
+                dialogue = selected_voice
                 output_mode = "m4b" if str(output_fmt).lower().startswith("m4b") else "mp3"
                 settings = {
                     "tts_engine": primary_engine,
@@ -3063,6 +3056,7 @@ def build_ui():
                 quick_input_mode,
                 quick_url_input,
                 quick_text_input,
+                quick_voice_simple,
                 quick_output_format,
                 quick_free_cloud,
                 cloud_manifest_url,
@@ -3232,6 +3226,7 @@ def build_ui():
                 remembered_quick_file_state,
                 quick_url_input,
                 quick_text_input,
+                quick_voice_simple,
                 quick_output_format,
                 quick_free_cloud,
             ],
@@ -3246,6 +3241,7 @@ def build_ui():
             quick_input_mode,
             quick_url_input,
             quick_text_input,
+            quick_voice_simple,
             quick_output_format,
             quick_free_cloud,
             cloud_manifest_url,
@@ -3261,6 +3257,7 @@ def build_ui():
                     quick_input_mode,
                     quick_url_input,
                     quick_text_input,
+                    quick_voice_simple,
                     quick_output_format,
                     quick_free_cloud,
                     cloud_manifest_url,
