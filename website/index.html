@@ -1,93 +1,261 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Audiobook Maker Launcher</title>
-    <style>
-      :root {
-        color-scheme: light dark;
-        font-family: Arial, sans-serif;
-      }
-      body {
-        max-width: 760px;
-        margin: 0 auto;
-        padding: 2rem 1rem 3rem;
-        line-height: 1.5;
-      }
-      h1 {
-        margin-bottom: 0.5rem;
-      }
-      code {
-        background: rgba(127, 127, 127, 0.15);
-        padding: 0.1rem 0.3rem;
-        border-radius: 4px;
-      }
-      pre {
-        background: rgba(127, 127, 127, 0.15);
-        padding: 0.8rem;
-        border-radius: 8px;
-        overflow-x: auto;
-      }
-      .card {
-        border: 1px solid rgba(127, 127, 127, 0.25);
-        border-radius: 12px;
-        padding: 1rem;
-        margin-top: 1rem;
-      }
-      .small {
-        font-size: 0.92rem;
-        opacity: 0.9;
-      }
-    </style>
+    <meta name="theme-color" content="#0f172a" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <title>Audiobook Maker V7 - Launcher</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              brand: {
+                500: "#6366f1",
+                600: "#4f46e5"
+              }
+            }
+          }
+        }
+      };
+    </script>
   </head>
-  <body>
-    <h1>Audiobook Maker</h1>
-    <p>
-      This Vercel page is a lightweight launcher for the Python Gradio app in
-      this repository.
-    </p>
-
-    <div class="card">
-      <h2>Launch locally</h2>
-      <pre><code>pip install -r requirements.txt
-python3 audiobook_creator_v7.py</code></pre>
-      <p class="small">The Gradio app listens on <code>http://localhost:7860</code>. Use the <strong>Easy Mobile Mode</strong> tab for one-tap generation.</p>
+  <body class="bg-slate-50 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100">
+    <div
+      id="install-banner"
+      class="fixed inset-x-3 top-3 z-50 hidden rounded-2xl border border-indigo-300/40 bg-indigo-50/95 p-3 text-sm shadow-xl backdrop-blur dark:border-indigo-500/40 dark:bg-slate-900/95"
+    >
+      <div class="flex items-center justify-between gap-3">
+        <p>Install Audiobook Maker Launcher for one-tap access.</p>
+        <div class="flex items-center gap-2">
+          <button id="install-now" class="rounded-lg bg-brand-600 px-3 py-1.5 text-white">Install</button>
+          <button id="install-dismiss" class="rounded-lg border border-slate-300 px-3 py-1.5 dark:border-slate-700">Later</button>
+        </div>
+      </div>
     </div>
 
-    <div class="card">
-      <h2>Free cloud memory</h2>
-      <p>
-        Use the app's <strong>System</strong> tab to back up and restore
-        manifests through JSONBlob (anonymous free JSON storage).
-      </p>
-    </div>
+    <main class="mx-auto max-w-6xl px-4 pb-24 pt-8 md:px-6">
+      <header class="mb-8 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <img src="/icon.svg" alt="Audiobook Maker icon" class="h-10 w-10 rounded-xl" />
+          <div>
+            <p class="text-sm text-slate-500 dark:text-slate-400">Vercel static launcher</p>
+            <h1 class="text-xl font-bold md:text-2xl">Audiobook Maker V7</h1>
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <a
+            href="https://github.com/cajub311/audiobook-maker-"
+            target="_blank"
+            rel="noreferrer"
+            class="rounded-full border border-slate-300 px-3 py-1 text-sm dark:border-slate-700"
+            >GitHub</a
+          >
+          <img
+            alt="GitHub stars"
+            src="https://img.shields.io/github/stars/cajub311/audiobook-maker-?style=social"
+            class="h-6"
+          />
+          <img alt="Version badge" src="https://img.shields.io/badge/version-v7-indigo" class="h-6" />
+          <button id="theme-toggle" class="rounded-full border border-slate-300 px-3 py-1 text-sm dark:border-slate-700">
+            Toggle theme
+          </button>
+        </div>
+      </header>
 
-    <div class="card">
-      <h2>Launch instructions API</h2>
-      <p>
-        Programmatic instructions are available at
-        <code>/api/launch</code>.
-      </p>
-      <pre id="api-output"><code>Loading...</code></pre>
-    </div>
+      <section class="grid gap-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/70 md:grid-cols-2 md:p-10">
+        <div>
+          <p class="mb-2 inline-flex rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+            Mobile-first audiobook launcher
+          </p>
+          <h2 class="text-3xl font-black leading-tight md:text-4xl">Audiobook Maker V7</h2>
+          <p class="mt-4 text-slate-600 dark:text-slate-300">
+            Modern Gradio pipeline for creating chaptered audiobooks with resume support, character voices, and cloud backup.
+          </p>
+          <div class="mt-6 flex flex-wrap gap-3">
+            <a href="#quickstart" class="rounded-xl bg-brand-600 px-4 py-2 font-semibold text-white hover:bg-brand-500">Quick Start</a>
+            <a href="/api/launch" class="rounded-xl border border-slate-300 px-4 py-2 font-semibold dark:border-slate-700">/api/launch</a>
+            <button id="share-btn" class="rounded-xl border border-slate-300 px-4 py-2 font-semibold dark:border-slate-700">Share</button>
+          </div>
+          <p class="mt-4 text-sm text-slate-500 dark:text-slate-400">Try on Hugging Face (soon)</p>
+        </div>
+        <div>
+          <img
+            src="/assets/gradio-ui-preview.svg"
+            alt="Screenshot of Audiobook Maker V7 Gradio UI"
+            class="w-full rounded-2xl border border-slate-200 shadow-2xl dark:border-slate-700"
+          />
+        </div>
+      </section>
+
+      <section class="mt-10">
+        <h3 class="text-2xl font-bold">Features</h3>
+        <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <h4 class="font-semibold">📱 Easy Mobile Mode</h4>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Single-tap generation flow for phone users.</p>
+          </article>
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <h4 class="font-semibold">💾 Resume + Memory</h4>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Drafts and projects are remembered between sessions.</p>
+          </article>
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <h4 class="font-semibold">🎤 Voice Browser</h4>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Preview many voices quickly with per-voice buttons.</p>
+          </article>
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <h4 class="font-semibold">☁️ JSONBlob Backup</h4>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Free cloud manifest backups for continuity.</p>
+          </article>
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <h4 class="font-semibold">📚 M4B Chapters</h4>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Build MP3 or chaptered M4B outputs.</p>
+          </article>
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <h4 class="font-semibold">🛡️ Reliable Pipeline</h4>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Resume-safe stages with atomic checkpoints.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="quickstart" class="mt-10">
+        <h3 class="text-2xl font-bold">Quick Start</h3>
+        <div class="mt-4 grid gap-4 md:grid-cols-2">
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <p class="text-xs font-bold uppercase tracking-wide text-indigo-500">Step 1</p>
+            <p class="mt-2 font-semibold">Install dependencies</p>
+            <pre id="w-cmd-1" class="mt-2 overflow-x-auto rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-950"><code>pip install -r requirements.txt</code></pre>
+            <button data-copy="w-cmd-1" class="copy-btn mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">Copy</button>
+          </article>
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <p class="text-xs font-bold uppercase tracking-wide text-indigo-500">Step 2</p>
+            <p class="mt-2 font-semibold">Run app</p>
+            <pre id="w-cmd-2" class="mt-2 overflow-x-auto rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-950"><code>python3 audiobook_creator_v7.py</code></pre>
+            <button data-copy="w-cmd-2" class="copy-btn mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">Copy</button>
+          </article>
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <p class="text-xs font-bold uppercase tracking-wide text-indigo-500">Step 3</p>
+            <p class="mt-2 font-semibold">Optional public share URL</p>
+            <pre id="w-cmd-3" class="mt-2 overflow-x-auto rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-950"><code>GRADIO_SHARE=1 python3 audiobook_creator_v7.py</code></pre>
+            <button data-copy="w-cmd-3" class="copy-btn mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">Copy</button>
+          </article>
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <p class="text-xs font-bold uppercase tracking-wide text-indigo-500">Step 4</p>
+            <p class="mt-2 font-semibold">Open in browser</p>
+            <pre id="w-cmd-4" class="mt-2 overflow-x-auto rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-950"><code>http://localhost:7860</code></pre>
+            <button data-copy="w-cmd-4" class="copy-btn mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">Copy</button>
+          </article>
+        </div>
+      </section>
+
+      <section class="mt-10 grid gap-4 lg:grid-cols-2">
+        <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <h3 class="text-xl font-bold">Phone Workflow</h3>
+          <div class="mt-4 rounded-3xl border border-slate-300 bg-slate-100 p-4 dark:border-slate-700 dark:bg-slate-950">
+            <div class="mx-auto w-56 rounded-[2rem] border-4 border-slate-800 bg-slate-900 p-3 text-slate-100">
+              <p class="text-center text-xs text-slate-400">📱 Easy Mobile Mode</p>
+              <ol class="mt-3 space-y-2 text-sm">
+                <li>1. Paste/upload source</li>
+                <li>2. Tap one button</li>
+                <li>3. Watch live status</li>
+                <li>4. Download audiobook</li>
+              </ol>
+            </div>
+          </div>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <h3 class="text-xl font-bold">API + Health</h3>
+          <pre id="api-output" class="mt-3 max-h-64 overflow-auto rounded-xl bg-slate-100 p-3 text-xs dark:bg-slate-950"><code>Loading...</code></pre>
+          <p id="pwa-status" class="mt-2 text-xs text-slate-500 dark:text-slate-400">Checking launcher status...</p>
+        </article>
+      </section>
+    </main>
 
     <script>
-      fetch("/api/launch")
-        .then(function (res) {
-          return res.json();
-        })
-        .then(function (data) {
-          document.getElementById("api-output").textContent = JSON.stringify(
-            data,
-            null,
-            2
-          );
-        })
-        .catch(function () {
-          document.getElementById("api-output").textContent =
-            "Could not load /api/launch.";
+      let installPromptEvent = null;
+      const installBanner = document.getElementById("install-banner");
+      const installNow = document.getElementById("install-now");
+      const installDismiss = document.getElementById("install-dismiss");
+
+      const preferredTheme = localStorage.getItem("abm-theme");
+      if (preferredTheme === "light") document.documentElement.classList.remove("dark");
+      document.getElementById("theme-toggle").addEventListener("click", () => {
+        const html = document.documentElement;
+        html.classList.toggle("dark");
+        localStorage.setItem("abm-theme", html.classList.contains("dark") ? "dark" : "light");
+      });
+
+      for (const btn of document.querySelectorAll(".copy-btn")) {
+        btn.addEventListener("click", async () => {
+          const target = document.getElementById(btn.dataset.copy);
+          const text = target ? target.innerText.trim() : "";
+          if (!text) return;
+          try {
+            await navigator.clipboard.writeText(text);
+            btn.textContent = "Copied";
+            setTimeout(() => (btn.textContent = "Copy"), 1200);
+          } catch (_err) {
+            btn.textContent = "Failed";
+          }
         });
+      }
+
+      document.getElementById("share-btn").addEventListener("click", async () => {
+        const data = {
+          title: "Audiobook Maker V7",
+          text: "Open the mobile audiobook launcher",
+          url: window.location.href
+        };
+        try {
+          if (navigator.share) {
+            await navigator.share(data);
+          } else {
+            await navigator.clipboard.writeText(window.location.href);
+            alert("Link copied to clipboard.");
+          }
+        } catch (_err) {}
+      });
+
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker
+          .register("/service-worker.js")
+          .then(() => (document.getElementById("pwa-status").textContent = "Offline cache enabled."))
+          .catch(() => (document.getElementById("pwa-status").textContent = "Service worker registration failed."));
+      }
+
+      window.addEventListener("beforeinstallprompt", (event) => {
+        event.preventDefault();
+        installPromptEvent = event;
+        installBanner.classList.remove("hidden");
+      });
+      installNow.addEventListener("click", async () => {
+        if (!installPromptEvent) return;
+        await installPromptEvent.prompt();
+        installBanner.classList.add("hidden");
+      });
+      installDismiss.addEventListener("click", () => installBanner.classList.add("hidden"));
+
+      fetch("/api/launch")
+        .then((res) => res.json())
+        .then((data) => {
+          document.getElementById("api-output").textContent = JSON.stringify(data, null, 2);
+        })
+        .catch(() => {
+          document.getElementById("api-output").textContent = "Could not load /api/launch.";
+        });
+
+      fetch("/api/health")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data.status === "ok") {
+            document.getElementById("pwa-status").textContent += " API healthy.";
+          }
+        })
+        .catch(() => {});
     </script>
   </body>
 </html>

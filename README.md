@@ -8,6 +8,8 @@ Manifest-based audiobook generator with a Gradio UI and a 3-stage pipeline:
 
 Main entrypoint: `audiobook_creator_v7.py`
 
+Repository display name (recommended): **`audiobook-maker`** (without trailing dash).
+
 ## Quick Start
 
 ```bash
@@ -16,6 +18,17 @@ python3 audiobook_creator_v7.py
 ```
 
 Then open: `http://localhost:7860`
+
+## Screenshots
+
+### Gradio UI Preview
+
+![Audiobook Maker V7 UI](assets/gradio-ui-preview.svg)
+
+### Launcher Preview
+
+- Root launcher: `/`
+- Secondary launcher page: `/website/index.html`
 
 ### Phone / Mobile Quick Start
 
@@ -80,16 +93,27 @@ This stores JSON manifest state remotely, so you can resume from another machine
 
 ## Vercel Website Launcher
 
-This repo includes a lightweight Vercel launcher website so visitors can discover how to run the local Gradio app.
+This repo includes a modern Tailwind-powered Vercel launcher website so mobile users can quickly start the Gradio app and follow guided steps.
 
 ### Launcher files
 
 - `index.html` - root launcher page (primary Vercel entrypoint)
+- `website/index.html` - alternate launcher page with same modern layout
 - `vercel.json` - minimal Vercel settings (`cleanUrls`, no trailing slash)
 - `.vercelignore` - excludes local runtime data from deployment payload
 - `manifest.webmanifest`, `service-worker.js`, `icon.svg` - mobile PWA-style launcher support
-- `website/index.html` - static launcher UI with quick-start commands
+- `assets/gradio-ui-preview.svg` - hero/screenshot artwork used by launcher pages
 - `api/launch.js`, `api/health.js` - JSON instruction + health endpoints
+
+### Launcher highlights
+
+- Tailwind CDN responsive redesign (mobile-first)
+- Dark mode toggle matching app vibe
+- Hero + screenshot + feature cards
+- Command cards with copy-to-clipboard buttons
+- Phone workflow visual
+- PWA install prompt banner
+- GitHub star + version badge + Hugging Face teaser
 
 ### CI checks
 

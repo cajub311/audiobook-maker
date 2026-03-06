@@ -1,5 +1,14 @@
-const CACHE_NAME = "audiobook-launcher-v1";
-const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg", "/api/launch"];
+const CACHE_NAME = "audiobook-launcher-v2";
+const APP_SHELL = [
+  "/",
+  "/index.html",
+  "/website/index.html",
+  "/manifest.webmanifest",
+  "/icon.svg",
+  "/assets/gradio-ui-preview.svg",
+  "/api/launch",
+  "/api/health"
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
