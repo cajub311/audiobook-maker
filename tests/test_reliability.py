@@ -10,6 +10,7 @@ from audiobook_creator_v7 import (
     AudioCache,
     build_atempo_filter,
     choose_resume_project_id,
+    create_tts_engine,
     load_manifest,
     manifest_has_generation_errors,
     save_manifest,
@@ -119,6 +120,12 @@ class ReliabilityTests(unittest.TestCase):
         found = detect_dialogue_with_strategy(text, "quotes_only")
         self.assertTrue(found)
         self.assertIsNone(found[0].get("speaker"))
+
+    def test_tts_engine_factory(self):
+        edge = create_tts_engine("edge-tts")
+        kokoro = create_tts_engine("kokoro")
+        self.assertGreaterEqual(edge.max_concurrent, 1)
+        self.assertGreaterEqual(kokoro.max_concurrent, 1)
 
 
 if __name__ == "__main__":
