@@ -13,6 +13,7 @@ from audiobook_creator_v7 import (
     create_tts_engine,
     load_manifest,
     manifest_has_generation_errors,
+    normalize_quick_output_format_label,
     save_manifest,
     stage_generate,
     validate_safe_http_url,
@@ -135,6 +136,16 @@ class ReliabilityTests(unittest.TestCase):
         confidence = float(found[0].get("confidence", 0.0))
         self.assertGreater(confidence, 0.0)
         self.assertLessEqual(confidence, 1.0)
+
+    def test_quick_output_format_normalization(self):
+        self.assertEqual(
+            normalize_quick_output_format_label("M4B"),
+            "M4B (chapter bookmarks)",
+        )
+        self.assertEqual(
+            normalize_quick_output_format_label("MP3"),
+            "MP3 (single file, easiest to share)",
+        )
 
     def test_tts_engine_factory(self):
         edge = create_tts_engine("edge-tts")

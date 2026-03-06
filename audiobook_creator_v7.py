@@ -1711,6 +1711,13 @@ def dialogue_strategy_value_to_label(value: str) -> str:
     return "Auto (best quality)"
 
 
+def normalize_quick_output_format_label(label: str) -> str:
+    low = (label or "").strip().lower()
+    if low.startswith("m4b"):
+        return "M4B (chapter bookmarks)"
+    return "MP3 (single file, easiest to share)"
+
+
 def voices_for_engine(engine_label: str) -> list[str]:
     engine = create_tts_engine(normalize_engine_label(engine_label))
     voices = [v.get("name", "") for v in engine.list_voices()]
@@ -1954,22 +1961,33 @@ input, textarea, select {font-size: 16px !important;}
   background: rgba(15, 23, 42, 0.85);
   border: 1px solid rgba(148, 163, 184, 0.2);
   backdrop-filter: blur(8px);
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.bottom-mobile-nav.nav-hidden {
+  transform: translateY(120%);
+  opacity: 0;
 }
 .bottom-mobile-nav .nav-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
 }
 .bottom-mobile-nav button {
   border-radius: 10px;
   border: 1px solid rgba(148, 163, 184, 0.2);
-  min-height: 48px;
+  min-height: 52px;
   padding: 10px 8px;
-  font-size: 13px;
+  font-size: 14px;
   background: rgba(30, 41, 59, 0.75);
   color: #e2e8f0;
   position: relative;
   overflow: hidden;
+}
+.bottom-mobile-nav button.nav-primary {
+  min-height: 60px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+  border-color: rgba(129, 140, 248, 0.7);
 }
 .bottom-mobile-nav button:active::after {
   content: "";
@@ -2005,7 +2023,12 @@ input, textarea, select {font-size: 16px !important;}
   .gr-row {flex-direction: column !important; gap: 10px !important;}
   .gr-button {width: 100% !important;}
   .bottom-mobile-nav .nav-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (min-width: 769px) {
+  .bottom-mobile-nav {
+    display: none;
   }
 }
 """
@@ -2073,15 +2096,14 @@ def build_ui():
 
         with gr.Tab("Easy Mobile Mode"):
             gr.Markdown("### One-tap audiobook mode (phone-friendly)")
-            gr.Markdown("Paste text below, then tap **Create Audiobook**. Use *Show advanced options* only if needed.")
+            gr.Markdown("Paste text, choose format, tap **Create Audiobook**. Use *Show advanced options* only when needed.")
             gr.HTML(
                 """
                 <div class="bottom-mobile-nav">
                   <div class="nav-grid">
-                    <button type="button" onclick="document.querySelector('#quick-generate-btn button')?.click()">Generate</button>
-                    <button type="button" onclick="document.querySelector('#resume-last-btn button')?.click()">Resume</button>
-                    <button type="button" onclick="window.__abmSwitchTab?.('System')">Settings</button>
-                    <button type="button" onclick="window.__abmSwitchTab?.('Player')">Player</button>
+                    <button class="nav-primary" aria-label="Generate audiobook now" type="button" onclick="window.__abmMobileAction?.('generate')">Generate</button>
+                    <button aria-label="Resume last audiobook project" type="button" onclick="window.__abmMobileAction?.('resume')">Resume</button>
+                    <button aria-label="Open system settings and diagnostics" type="button" onclick="window.__abmMobileAction?.('settings')">Settings</button>
                   </div>
                 </div>
                 <script>
@@ -2090,6 +2112,41 @@ def build_ui():
                   const target = tabs.find((el) => (el.textContent || '').trim() === name);
                   if (target) target.click();
                 };
+                window.__abmToast = function (message) {
+                  const toast = document.createElement('div');
+                  toast.textContent = message;
+                  toast.style.cssText = 'position:fixed;left:12px;right:12px;bottom:84px;padding:12px 14px;border-radius:10px;background:rgba(15,23,42,0.92);color:#e2e8f0;border:1px solid rgba(148,163,184,0.35);z-index:60;font-size:13px;text-align:center;';
+                  document.body.appendChild(toast);
+                  window.setTimeout(() => toast.remove(), 1800);
+                };
+                window.__abmMobileAction = function (action) {
+                  if (navigator.vibrate) navigator.vibrate(20);
+                  if (action === 'generate') {
+                    document.querySelector('#quick-generate-btn button')?.click();
+                    window.__abmToast('Starting audiobook generation...');
+                    return;
+                  }
+                  if (action === 'resume') {
+                    document.querySelector('#resume-last-btn button')?.click();
+                    window.__abmToast('Loading last project...');
+                    return;
+                  }
+                  if (action === 'settings') {
+                    window.__abmSwitchTab?.('System');
+                    window.__abmToast('Opened settings and diagnostics.');
+                  }
+                };
+                const nav = document.querySelector('.bottom-mobile-nav');
+                if (nav && !nav.dataset.keyboardBound) {
+                  nav.dataset.keyboardBound = '1';
+                  document.addEventListener('focusin', (ev) => {
+                    const tag = (ev.target && ev.target.tagName) ? ev.target.tagName.toLowerCase() : '';
+                    if (tag === 'input' || tag === 'textarea') nav.classList.add('nav-hidden');
+                  });
+                  document.addEventListener('focusout', () => {
+                    window.setTimeout(() => nav.classList.remove('nav-hidden'), 120);
+                  });
+                }
                 </script>
                 """
             )
@@ -2099,13 +2156,18 @@ def build_ui():
                 placeholder="Paste your story/article/book text here, then tap Create Audiobook.",
                 visible=True,
             )
-            quick_voice_choices = voices_for_engine("edge-tts")
-            quick_voice_simple = gr.Dropdown(
-                label="Voice",
-                choices=quick_voice_choices,
-                value=(quick_voice_choices[0] if quick_voice_choices else None),
+            quick_output_format = gr.Radio(
+                ["MP3 (single file, easiest to share)", "M4B (chapter bookmarks)"],
+                value="MP3 (single file, easiest to share)",
+                label="Output format",
             )
+            quick_voice_choices = voices_for_engine("edge-tts")
             with gr.Accordion("Show advanced options", open=False):
+                quick_voice_simple = gr.Dropdown(
+                    label="Voice (optional)",
+                    choices=quick_voice_choices,
+                    value=(quick_voice_choices[0] if quick_voice_choices else None),
+                )
                 quick_input_mode = gr.Radio(["File", "URL", "Paste Text"], value="Paste Text", label="Input mode")
                 quick_file_input = gr.File(
                     label="Upload book file (EPUB/PDF/TXT)",
@@ -2113,9 +2175,8 @@ def build_ui():
                     visible=False,
                 )
                 quick_url_input = gr.Textbox(label="Book/article URL", placeholder="https://...", visible=False)
-                with gr.Row():
-                    quick_output_format = gr.Radio(["MP3", "M4B"], value="MP3", label="Format")
-                    quick_free_cloud = gr.Checkbox(label="Save progress to free cloud memory", value=True)
+                quick_free_cloud = gr.Checkbox(label="Save progress to free cloud memory", value=True)
+                gr.Markdown("Need diagnostics? Open the **System** tab from the bottom Settings button.")
             quick_generate_btn = gr.Button(
                 "Create Audiobook",
                 variant="primary",
@@ -2264,7 +2325,7 @@ def build_ui():
                 gr.Textbox(value=str(draft.get("quick_url", "") or "")),
                 gr.Textbox(value=str(draft.get("quick_text", "") or "")),
                 gr.Dropdown(value=quick_voice_value),
-                gr.Radio(value=str(draft.get("quick_output_format", "MP3") or "MP3")),
+                gr.Radio(value=normalize_quick_output_format_label(str(draft.get("quick_output_format", "MP3") or "MP3"))),
                 gr.Checkbox(value=bool(draft.get("quick_free_cloud", True))),
                 gr.Textbox(value=str(draft.get("cloud_manifest_url", "") or "")),
                 adv_file_path,
@@ -2299,7 +2360,7 @@ def build_ui():
             draft["quick_url"] = quick_url
             draft["quick_text"] = quick_text
             draft["quick_voice_simple"] = str(quick_voice_simple_val or "")
-            draft["quick_output_format"] = quick_output_fmt
+            draft["quick_output_format"] = normalize_quick_output_format_label(quick_output_fmt)
             draft["quick_free_cloud"] = bool(quick_free_cloud_val)
             draft["cloud_manifest_url"] = cloud_manifest_val
             draft["adv_file_path"] = existing_path_or_empty(remembered_adv_file)
