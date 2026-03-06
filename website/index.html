@@ -86,7 +86,7 @@
             class="h-6"
           />
           <img alt="Version badge" src="https://img.shields.io/badge/version-v7-indigo" class="h-6" />
-          <button id="theme-toggle" aria-label="Toggle light and dark theme" class="rounded-full border border-slate-300 px-3 py-1 text-sm dark:border-slate-700">
+          <button id="theme-toggle" aria-label="Toggle light and dark theme" aria-pressed="false" class="rounded-full border border-slate-300 px-3 py-1 text-sm dark:border-slate-700">
             Toggle theme
           </button>
         </div>
@@ -107,6 +107,9 @@
             <a href="/api/launch" class="w-full rounded-xl border border-slate-300 px-4 py-3 text-center font-semibold dark:border-slate-700 sm:w-auto">/api/launch</a>
             <button id="share-btn" aria-label="Share launcher link" class="w-full rounded-xl border border-slate-300 px-4 py-3 font-semibold dark:border-slate-700 sm:w-auto">Share</button>
           </div>
+          <p id="action-feedback" role="status" aria-live="polite" class="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            Actions ready.
+          </p>
           <p class="mt-4 text-sm text-slate-500 dark:text-slate-400">Try on Hugging Face (soon)</p>
         </div>
         <div>
@@ -336,6 +339,8 @@
       const installNow = document.getElementById("install-now");
       const installDismiss = document.getElementById("install-dismiss");
       const statusNode = document.getElementById("pwa-status");
+      const actionFeedbackNode = document.getElementById("action-feedback");
+      const themeToggleBtn = document.getElementById("theme-toggle");
       const showToast = (message, type = "info") => {
         const toast = document.createElement("div");
         const bg = type === "error" ? "#dc2626" : type === "success" ? "#059669" : "#334155";
@@ -349,16 +354,29 @@
           navigator.vibrate(pattern);
         }
       };
+      const setActionFeedback = (message) => {
+        if (actionFeedbackNode) {
+          actionFeedbackNode.textContent = message;
+        }
+      };
+      const syncThemePressedState = () => {
+        if (themeToggleBtn) {
+          themeToggleBtn.setAttribute("aria-pressed", document.documentElement.classList.contains("dark") ? "true" : "false");
+        }
+      };
 
       const preferredTheme = localStorage.getItem("abm-theme");
       const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
       if (preferredTheme === "light" || (!preferredTheme && !prefersDark)) {
         document.documentElement.classList.remove("dark");
       }
-      document.getElementById("theme-toggle").addEventListener("click", () => {
+      syncThemePressedState();
+      themeToggleBtn.addEventListener("click", () => {
         const html = document.documentElement;
         html.classList.toggle("dark");
         localStorage.setItem("abm-theme", html.classList.contains("dark") ? "dark" : "light");
+        syncThemePressedState();
+        setActionFeedback(`Theme changed to ${html.classList.contains("dark") ? "dark" : "light"} mode.`);
       });
 
       for (const btn of document.querySelectorAll(".copy-btn")) {
@@ -371,11 +389,13 @@
             btn.textContent = "Copied";
             haptic([15]);
             showToast("Copied to clipboard", "success");
+            setActionFeedback("Copied command to clipboard.");
             setTimeout(() => (btn.textContent = "Copy"), 1200);
           } catch (_err) {
             btn.textContent = "Failed";
             haptic([30, 40, 30]);
             showToast("Copy failed", "error");
+            setActionFeedback("Copy failed. Please copy manually.");
           }
         });
       }
@@ -390,12 +410,22 @@
           if (navigator.share) {
             await navigator.share(data);
             haptic([20]);
+            showToast("Share opened", "success");
+            setActionFeedback("Share opened.");
           } else {
             await navigator.clipboard.writeText(window.location.href);
             haptic([15]);
             showToast("Link copied to clipboard", "success");
+            setActionFeedback("Launcher link copied to clipboard.");
           }
-        } catch (_err) {}
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            setActionFeedback("Share cancelled.");
+            return;
+          }
+          showToast("Share failed", "error");
+          setActionFeedback("Share failed. Please copy the URL manually.");
+        }
       });
 
       const calcPages = document.getElementById("calc-pages");
