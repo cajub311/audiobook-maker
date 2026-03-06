@@ -4,6 +4,7 @@ from pathlib import Path
 import wave
 import contextlib
 import asyncio
+from unittest.mock import patch
 
 from audiobook_creator_v7 import (
     AudioCache,
@@ -14,6 +15,7 @@ from audiobook_creator_v7 import (
     save_manifest,
     stage_generate,
     validate_safe_http_url,
+    validate_local_input_file,
 )
 
 
@@ -91,6 +93,14 @@ class ReliabilityTests(unittest.TestCase):
     def test_manifest_error_when_cached_file_missing(self):
         manifest = {"chapters": [{"segments": [{"status": "cached", "cache_file": "/definitely/missing.mp3"}]}]}
         self.assertTrue(manifest_has_generation_errors(manifest))
+
+    def test_pdf_size_validation_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_pdf = Path(tmp) / "book.pdf"
+            fake_pdf.write_bytes(b"x" * 12)
+            with patch("audiobook_creator_v7.MAX_UPLOAD_FILE_BYTES", 10):
+                with self.assertRaises(ValueError):
+                    validate_local_input_file(fake_pdf)
 
 
 if __name__ == "__main__":

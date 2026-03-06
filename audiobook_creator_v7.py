@@ -11,6 +11,7 @@ Single-file manifest-based audiobook pipeline with:
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import contextlib
 import gc
 import hashlib
@@ -34,25 +35,38 @@ from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from config import (
+    APP_STATE_PATH,
+    APP_VERSION,
+    BASE_DIR,
+    BOOK_PROFILES_DIR,
+    CACHE_DIR,
+    CACHE_KEY_SCHEMA_VERSION,
+    CACHE_SLIDER_MAX_MB,
+    CACHE_SLIDER_MIN_MB,
+    CACHE_SLIDER_STEP_MB,
+    DEFAULT_CACHE_MAX_SIZE_MB,
+    DEFAULT_FFMPEG_RETRIES,
+    DEFAULT_FFMPEG_TIMEOUT_S,
+    DEFAULT_QUEUE_SIZE,
+    DEFAULT_SEGMENT_CHUNK_CHARS,
+    DEFAULT_TTS_MIN_REQUEST_INTERVAL_S,
+    DEFAULT_URL_FETCH_TIMEOUT_S,
+    LOW_MEMORY_QUEUE_SIZE,
+    MANIFESTS_DIR,
+    MAX_CLOUD_MANIFEST_BYTES,
+    MAX_REMOTE_TEXT_BYTES,
+    MAX_UPLOAD_FILE_BYTES,
+    OUTPUT_DIR,
+    PRONUNCIATIONS_DIR,
+    QUICK_CACHE_MAX_SIZE_MB,
+    SAVED_INPUTS_DIR,
+    TEMP_DIR,
+    UI_DRAFT_PATH,
+    USER_AGENT,
+    VOICE_BROWSER_PAGE_SIZE,
+)
 
-APP_VERSION = "7.0"
-CACHE_KEY_SCHEMA_VERSION = 2
-BASE_DIR = Path(__file__).resolve().parent
-CACHE_DIR = BASE_DIR / "tts_cache"
-MANIFESTS_DIR = BASE_DIR / "manifests"
-PRONUNCIATIONS_DIR = BASE_DIR / "pronunciations"
-TEMP_DIR = BASE_DIR / "temp"
-OUTPUT_DIR = BASE_DIR / "output"
-BOOK_PROFILES_DIR = PRONUNCIATIONS_DIR / "book_profiles"
-SAVED_INPUTS_DIR = BASE_DIR / "saved_inputs"
-UI_DRAFT_PATH = BASE_DIR / "ui_draft.json"
-APP_STATE_PATH = BASE_DIR / "app_state.json"
-DEFAULT_FFMPEG_TIMEOUT_S = 240
-DEFAULT_FFMPEG_RETRIES = 2
-MAX_REMOTE_TEXT_BYTES = 2 * 1024 * 1024
-MAX_CLOUD_MANIFEST_BYTES = 1024 * 1024
-USER_AGENT = "AudiobookCreatorV7/1.0 (+mobile-safe-fetch)"
-VOICE_BROWSER_PAGE_SIZE = 12
 PREVIEW_SAMPLE_TEXT = (
     "This is a ten second voice preview for Audiobook Maker version seven. "
     "You are hearing the selected voice speaking naturally with clear pacing."
@@ -357,7 +371,7 @@ def validate_safe_http_url(raw_url: str, allowed_hosts: Optional[set[str]] = Non
 def fetch_text_url(
     raw_url: str,
     max_bytes: int = MAX_REMOTE_TEXT_BYTES,
-    timeout_s: int = 20,
+    timeout_s: int = DEFAULT_URL_FETCH_TIMEOUT_S,
     allowed_hosts: Optional[set[str]] = None,
     allowed_content_types: Optional[tuple[str, ...]] = None,
 ) -> str:
@@ -382,6 +396,24 @@ def fetch_text_url(
                 raise ValueError("Remote response exceeded max allowed size.")
             chunks.append(chunk)
     return b"".join(chunks).decode("utf-8", errors="ignore")
+
+
+def run_with_timeout(task: Callable[[], str], timeout_s: float) -> str:
+    """
+    Run a potentially slow synchronous task with a hard timeout.
+
+    This is mainly used for third-party extraction libraries to keep URL parsing
+    responsive in UI mode.
+    """
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(task)
+    try:
+        return future.result(timeout=max(0.1, float(timeout_s)))
+    except concurrent.futures.TimeoutError as exc:
+        future.cancel()
+        raise TimeoutError(f"Operation timed out after {timeout_s:.1f}s.") from exc
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 def estimate_generation_seconds(total_chars: int, engine_name: str) -> int:
@@ -436,6 +468,23 @@ def run_coro_sync(coro: Any) -> Any:
             return loop.run_until_complete(coro)
         finally:
             loop.close()
+
+
+class AsyncRateLimiter:
+    def __init__(self, min_interval_s: float = 0.0) -> None:
+        self.min_interval_s = max(0.0, float(min_interval_s))
+        self._lock = asyncio.Lock()
+        self._next_allowed_ts = 0.0
+
+    async def wait_turn(self) -> None:
+        if self.min_interval_s <= 0.0:
+            return
+        async with self._lock:
+            now = time.monotonic()
+            if now < self._next_allowed_ts:
+                await asyncio.sleep(self._next_allowed_ts - now)
+                now = time.monotonic()
+            self._next_allowed_ts = now + self.min_interval_s
 
 
 class EdgeTTSEngine(TTSEngine):
@@ -1006,7 +1055,7 @@ def split_sentences(text: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
-def chunk_text(text: str, max_chars: int = 5500) -> list[str]:
+def chunk_text(text: str, max_chars: int = DEFAULT_SEGMENT_CHUNK_CHARS) -> list[str]:
     if len(text) <= max_chars:
         return [text.strip()]
     chunks: list[str] = []
@@ -1031,13 +1080,16 @@ def extract_text_from_url(url: str) -> str:
     html = fetch_text_url(
         safe_url,
         max_bytes=MAX_REMOTE_TEXT_BYTES,
-        timeout_s=20,
+        timeout_s=DEFAULT_URL_FETCH_TIMEOUT_S,
         allowed_content_types=("text/", "application/xhtml+xml", "application/xml"),
     )
     try:
         import trafilatura  # type: ignore
 
-        extracted = trafilatura.extract(html, include_comments=False, include_tables=False)
+        extracted = run_with_timeout(
+            lambda: str(trafilatura.extract(html, include_comments=False, include_tables=False) or ""),
+            timeout_s=DEFAULT_URL_FETCH_TIMEOUT_S,
+        )
         return extracted or ""
     except Exception:
         # Lightweight HTML cleanup fallback.
@@ -1140,6 +1192,17 @@ def extract_chapters_from_pdf(pdf_path: str) -> tuple[list[dict[str, str]], dict
     return chapters, {"title": Path(pdf_path).stem, "author": "Unknown"}
 
 
+def validate_local_input_file(path: Path) -> None:
+    if not path.exists() or not path.is_file():
+        raise ValueError("Uploaded file could not be found. Please upload it again.")
+    if path.suffix.lower() == ".pdf":
+        size_bytes = int(path.stat().st_size)
+        if size_bytes > MAX_UPLOAD_FILE_BYTES:
+            max_mb = MAX_UPLOAD_FILE_BYTES // (1024 * 1024)
+            size_mb = size_bytes / (1024 * 1024)
+            raise ValueError(f"PDF file is too large ({size_mb:.1f} MB). Maximum allowed is {max_mb} MB.")
+
+
 def extract_source_chapters(
     input_path: Optional[str] = None,
     url: Optional[str] = None,
@@ -1158,6 +1221,7 @@ def extract_source_chapters(
     if not input_path:
         raise ValueError("No input provided. Upload a file, enter a URL, or paste text.")
     path = Path(input_path)
+    validate_local_input_file(path)
     ext = path.suffix.lower()
     if ext == ".epub":
         chapters, meta = extract_chapters_from_epub(str(path))
@@ -1214,7 +1278,7 @@ def upload_manifest_to_free_cloud(manifest: dict[str, Any]) -> str:
         method="POST",
         headers={"Content-Type": "application/json"},
     )
-    with urlopen(req, timeout=20) as response:
+    with urlopen(req, timeout=DEFAULT_URL_FETCH_TIMEOUT_S) as response:
         location = response.headers.get("Location", "")
     if not location:
         raise RuntimeError("Cloud backup failed: missing location header.")
@@ -1227,7 +1291,7 @@ def load_manifest_from_free_cloud(url: str) -> dict[str, Any]:
     payload = fetch_text_url(
         url.strip(),
         max_bytes=MAX_CLOUD_MANIFEST_BYTES,
-        timeout_s=20,
+        timeout_s=DEFAULT_URL_FETCH_TIMEOUT_S,
         allowed_hosts={"jsonblob.com"},
         allowed_content_types=("application/json", "text/plain"),
     )
@@ -1276,6 +1340,20 @@ def update_run_state(
 
 def ensure_manifest_defaults(manifest: dict[str, Any]) -> dict[str, Any]:
     manifest.setdefault("settings", {})
+    settings = manifest["settings"]
+    settings.setdefault("tts_engine", "edge-tts")
+    settings.setdefault("narrator_voice", "en-US-GuyNeural")
+    settings.setdefault("dialogue_voice", "en-US-JennyNeural")
+    settings.setdefault("character_voices", {})
+    settings.setdefault("pronunciation_overrides", {})
+    settings.setdefault("speed_multiplier", 1.0)
+    settings.setdefault("speed_mode", "native")
+    settings.setdefault("max_queue_size", DEFAULT_QUEUE_SIZE)
+    settings.setdefault("cache_max_size_mb", DEFAULT_CACHE_MAX_SIZE_MB)
+    settings.setdefault("enable_free_cloud_memory", False)
+    settings.setdefault("free_cloud_manifest_url", "")
+    settings.setdefault("tts_min_request_interval_s", DEFAULT_TTS_MIN_REQUEST_INTERVAL_S)
+    settings.setdefault("cache_key_schema_version", CACHE_KEY_SCHEMA_VERSION)
     manifest.setdefault("book", {})
     manifest.setdefault("chapters", [])
     progress = manifest.setdefault("progress", {})
@@ -1306,7 +1384,7 @@ def ensure_manifest_defaults(manifest: dict[str, Any]) -> dict[str, Any]:
         for s_idx, seg in enumerate(chapter.get("segments", [])):
             seg.setdefault("index", s_idx)
             seg.setdefault("speaker", "narrator")
-            seg.setdefault("voice", manifest["settings"].get("narrator_voice", "en-US-GuyNeural"))
+            seg.setdefault("voice", settings.get("narrator_voice", "en-US-GuyNeural"))
             seg.setdefault("status", "pending")
             seg.setdefault("cache_file", None)
             seg.setdefault("duration_seconds", None)
@@ -1374,10 +1452,11 @@ def stage_parse(
     settings.setdefault("music_duck_db", -15)
     settings.setdefault("output_format", "m4b")
     settings.setdefault("speed_mode", speed_mode)
-    settings.setdefault("max_queue_size", 32)
-    settings.setdefault("cache_max_size_mb", 500)
+    settings.setdefault("max_queue_size", DEFAULT_QUEUE_SIZE)
+    settings.setdefault("cache_max_size_mb", DEFAULT_CACHE_MAX_SIZE_MB)
     settings.setdefault("enable_free_cloud_memory", False)
     settings.setdefault("free_cloud_manifest_url", "")
+    settings.setdefault("tts_min_request_interval_s", DEFAULT_TTS_MIN_REQUEST_INTERVAL_S)
     settings.setdefault("cache_key_schema_version", CACHE_KEY_SCHEMA_VERSION)
 
     source_chapters, meta, source_ref, source_type = extract_source_chapters(input_path, url, raw_text)
@@ -1388,7 +1467,7 @@ def stage_parse(
             first_chunk_text = candidate[:2000]
             break
     source_content_sig = hashlib.md5(first_chunk_text.encode("utf-8")).hexdigest()[:10] if first_chunk_text else "empty"
-    cache = AudioCache(max_size_mb=int(settings.get("cache_max_size_mb", 500)))
+    cache = AudioCache(max_size_mb=int(settings.get("cache_max_size_mb", DEFAULT_CACHE_MAX_SIZE_MB)))
     pronunciation_hash = hash_dict(settings.get("pronunciation_overrides", {}))
 
     manifest_chapters: list[dict[str, Any]] = []
@@ -1419,7 +1498,7 @@ def stage_parse(
                     chapter_segments[-1]["scene_break_after"] = True
                 continue
 
-            chunks = chunk_text(para_text, max_chars=5500)
+            chunks = chunk_text(para_text, max_chars=DEFAULT_SEGMENT_CHUNK_CHARS)
             cursor = 0
             for chunk_idx, chunk in enumerate(chunks):
                 rel = para_text.find(chunk, cursor)
@@ -1561,13 +1640,16 @@ async def stage_generate(
     settings = manifest.get("settings", {})
     engine_name = settings.get("tts_engine", "edge-tts")
     engine = create_tts_engine(engine_name)
-    cache = AudioCache(max_size_mb=int(settings.get("cache_max_size_mb", 500)))
+    cache = AudioCache(max_size_mb=int(settings.get("cache_max_size_mb", DEFAULT_CACHE_MAX_SIZE_MB)))
     pronunciation = PronunciationDict(settings.get("pronunciation_overrides", {}))
     speed = float(settings.get("speed_multiplier", 1.0))
     speed_mode = str(settings.get("speed_mode", "native"))
     pronunciation_hash = hash_dict(settings.get("pronunciation_overrides", {}))
-    max_queue_size = max(4, int(settings.get("max_queue_size", 32)))
+    max_queue_size = max(4, int(settings.get("max_queue_size", DEFAULT_QUEUE_SIZE)))
     max_workers = min(engine.max_concurrent, max(1, int(settings.get("max_concurrent", engine.max_concurrent))))
+    rate_limiter: Optional[AsyncRateLimiter] = None
+    if engine.requires_internet:
+        rate_limiter = AsyncRateLimiter(float(settings.get("tts_min_request_interval_s", DEFAULT_TTS_MIN_REQUEST_INTERVAL_S)))
 
     pending: list[tuple[int, int]] = []
     for c_idx, chapter in enumerate(manifest.get("chapters", [])):
@@ -1627,6 +1709,8 @@ async def stage_generate(
                 tmp_path = str(TEMP_DIR / f"gen_{ch_idx}_{seg_idx}_{uuid.uuid4().hex}{ext}")
                 if cancel_event and cancel_event.is_set():
                     return
+                if rate_limiter is not None:
+                    await rate_limiter.wait_turn()
                 result = await engine.generate(
                     text=transformed_text,
                     voice=voice,
@@ -2089,6 +2173,24 @@ def format_eta(seconds: float) -> str:
     return f"{minutes:02d}:{secs:02d}"
 
 
+def classify_runtime_error(exc: Exception) -> tuple[str, str]:
+    message = str(exc or "").lower()
+    if isinstance(exc, ValueError):
+        return ("Input validation", "Verify the selected input source and try again.")
+    if isinstance(exc, TimeoutError) or "timeout" in message or "timed out" in message:
+        return ("Network timeout", "Retry with a shorter text/input or a more stable connection.")
+    if any(token in message for token in ("ffmpeg", "ffprobe")):
+        return ("System dependency", "Install/verify FFmpeg + ffprobe, then rerun preflight checks.")
+    if any(token in message for token in ("http", "connection", "network", "dns", "socket", "url")):
+        return ("Network", "Check connectivity or switch to local/offline input.")
+    return ("Processing", "Check logs and retry. If it persists, reduce input size.")
+
+
+def format_runtime_error(context: str, exc: Exception) -> str:
+    category, hint = classify_runtime_error(exc)
+    return f"{context} ({category}): {exc}\n\nHint: {hint}"
+
+
 def runtime_state_badge(state: str, detail: str = "") -> str:
     state_norm = (state or "idle").lower()
     palette = {
@@ -2427,6 +2529,8 @@ def build_ui():
 
     ensure_runtime_dirs()
     cancel_event = threading.Event()
+    generate_inflight = threading.Event()
+    quick_inflight = threading.Event()
     theme = (
         gr.themes.Soft(
             primary_hue="indigo",
@@ -2590,7 +2694,13 @@ def build_ui():
             with gr.Accordion("Advanced generation options", open=False):
                 normalize_check = gr.Checkbox(label="Normalize loudness (-19 LUFS)", value=True)
                 low_memory_mode = gr.Checkbox(label="Low-memory mode (best for free cloud machines)", value=True)
-                cache_size_mb = gr.Slider(128, 4096, value=500, step=64, label="Cache size limit (MB)")
+                cache_size_mb = gr.Slider(
+                    CACHE_SLIDER_MIN_MB,
+                    CACHE_SLIDER_MAX_MB,
+                    value=DEFAULT_CACHE_MAX_SIZE_MB,
+                    step=CACHE_SLIDER_STEP_MB,
+                    label="Cache size limit (MB)",
+                )
                 free_cloud_memory = gr.Checkbox(label="Enable free cloud memory backup (JSONBlob)", value=False)
             generation_badge = gr.Markdown(runtime_state_badge("idle", "Waiting to start"))
             progress_text = gr.Markdown("")
@@ -2919,13 +3029,14 @@ def build_ui():
                     "speed_multiplier": float(speed),
                     "speed_mode": norm_speed_mode,
                     "max_concurrent": max_concurrent,
-                    "max_queue_size": 8 if low_mem else 32,
+                    "max_queue_size": LOW_MEMORY_QUEUE_SIZE if low_mem else DEFAULT_QUEUE_SIZE,
                     "cache_max_size_mb": int(cache_mb),
                     "background_music": None,
                     "music_duck_db": -15,
                     "output_format": "m4b",
                     "enable_free_cloud_memory": bool(cloud_enabled),
                     "free_cloud_manifest_url": str(cloud_url or ""),
+                    "tts_min_request_interval_s": DEFAULT_TTS_MIN_REQUEST_INTERVAL_S,
                 }
                 manifest, manifest_path = stage_parse(
                     input_path=input_path,
@@ -2974,7 +3085,17 @@ def build_ui():
                     gr.Textbox(value=cloud_url_effective),
                 )
             except Exception as exc:
-                return (f"Parse failed: {exc}", "_No data yet._", "_No chapter preview yet._", [], [], "", "", "", gr.Textbox(value=""))
+                return (
+                    format_runtime_error("Parse failed", exc),
+                    "_No data yet._",
+                    "_No chapter preview yet._",
+                    [],
+                    [],
+                    "",
+                    "",
+                    "",
+                    gr.Textbox(value=""),
+                )
 
         def on_cancel(manifest_path: str):
             cancel_event.set()
@@ -3010,6 +3131,14 @@ def build_ui():
             cloud_url: str,
             progress=gr.Progress(),
         ):
+            if generate_inflight.is_set():
+                return (
+                    "Generation is already in progress for this session.",
+                    "_No data yet._",
+                    None,
+                    None,
+                    runtime_state_badge("generating", "A run is already active"),
+                )
             if not manifest_path:
                 return (
                     "Parse a book first.",
@@ -3018,6 +3147,7 @@ def build_ui():
                     None,
                     runtime_state_badge("idle", "No manifest loaded"),
                 )
+            generate_inflight.set()
             cancel_event.clear()
             try:
                 manifest = load_manifest(manifest_path)
@@ -3037,10 +3167,13 @@ def build_ui():
                 settings["background_music"] = getattr(music_obj, "name", None) if music_obj else None
                 settings["output_format"] = "m4b" if out_fmt.lower().startswith("m4b") else "mp3"
                 settings["max_concurrent"] = 1 if low_mem else int(create_tts_engine(settings["tts_engine"]).max_concurrent)
-                settings["max_queue_size"] = 8 if low_mem else 32
+                settings["max_queue_size"] = LOW_MEMORY_QUEUE_SIZE if low_mem else DEFAULT_QUEUE_SIZE
                 settings["cache_max_size_mb"] = int(cache_mb)
                 settings["enable_free_cloud_memory"] = bool(cloud_enabled)
                 settings["free_cloud_manifest_url"] = str(cloud_url or "")
+                settings["tts_min_request_interval_s"] = float(
+                    settings.get("tts_min_request_interval_s", DEFAULT_TTS_MIN_REQUEST_INTERVAL_S)
+                )
 
                 updated_char_map: dict[str, dict[str, Any]] = {}
                 for row in (char_rows or []):
@@ -3104,8 +3237,15 @@ def build_ui():
 
                 if cancel_event.is_set():
                     progress_rows = build_chapter_progress(manifest)
+                    elapsed_total = max(0.0, time.time() - run_started)
+                    total_segments = int(manifest.get("progress", {}).get("total_segments", 0))
+                    completed_segments = int(manifest.get("progress", {}).get("completed_segments", 0))
                     return (
-                        "Generation cancelled.",
+                        (
+                            "Generation cancelled.\n\n"
+                            f"Completed **{completed_segments}/{total_segments}** segments in "
+                            f"**{format_eta(elapsed_total)}**."
+                        ),
                         rows_to_markdown(["Chapter", "Status", "Segments Done"], progress_rows),
                         None,
                         None,
@@ -3138,8 +3278,19 @@ def build_ui():
                 )
                 save_manifest(manifest, manifest_path)
                 progress_rows = build_chapter_progress(manifest)
+                elapsed_total = max(0.0, time.time() - run_started)
+                total_segments = int(manifest.get("progress", {}).get("total_segments", 0))
+                completed_segments = int(manifest.get("progress", {}).get("completed_segments", 0))
+                status_lines = [
+                    "### Generation summary",
+                    f"- ✅ Generated segments: **{completed_segments}/{total_segments}**",
+                    f"- ✅ Assembled output: **{Path(output_path).name}**",
+                    f"- ⏱️ Runtime: **{format_eta(elapsed_total)}**",
+                ]
+                if cloud_backup_note:
+                    status_lines.append(f"- ⚠️ {cloud_backup_note.strip()}")
                 return (
-                    f"Generation complete.{cloud_backup_note}",
+                    "\n".join(status_lines),
                     rows_to_markdown(["Chapter", "Status", "Segments Done"], progress_rows),
                     output_path,
                     output_path,
@@ -3149,12 +3300,14 @@ def build_ui():
                 if "manifest" in locals():
                     update_run_state(manifest, "failed", f"Generation failed: {exc}", manifest_path)
                 return (
-                    f"Generation failed: {exc}",
+                    format_runtime_error("Generation failed", exc),
                     "_No data yet._",
                     None,
                     None,
                     runtime_state_badge("failed", "Check logs and retry"),
                 )
+            finally:
+                generate_inflight.clear()
 
         def on_refresh_preflight():
             return run_preflight_checks()
@@ -3265,46 +3418,58 @@ def build_ui():
             use_cloud_memory: bool,
             progress=gr.Progress(),
         ):
-            cancel_event.clear()
-            input_path, parsed_url, parsed_text = resolve_source_inputs(
-                input_mode_label,
-                file_obj,
-                url,
-                text,
-                fallback_file_path=remembered_quick_file,
-            )
-            if not input_path and not parsed_url and not parsed_text:
+            if quick_inflight.is_set():
                 return (
-                    "Please provide a file, URL, or text.",
-                    runtime_state_badge("idle", "Waiting for input"),
+                    "Quick flow is already running. Please wait for it to finish or cancel it.",
+                    runtime_state_badge("generating", "Quick run already active"),
                     "_No chapter preview yet._",
                     None,
                     None,
                     "",
                 )
-            primary_engine = "edge-tts"
-            narrator = "en-US-GuyNeural"
-            dialogue = "en-US-JennyNeural"
-            output_mode = "m4b" if str(output_fmt).lower().startswith("m4b") else "mp3"
-            settings = {
-                "tts_engine": primary_engine,
-                "narrator_voice": narrator,
-                "dialogue_voice": dialogue,
-                "character_voices": {},
-                "pronunciation_overrides": {},
-                "speed_multiplier": 1.0,
-                "speed_mode": "post_process",
-                "max_concurrent": 1,
-                "max_queue_size": 8,
-                "cache_max_size_mb": 512,
-                "background_music": None,
-                "music_duck_db": -15,
-                "output_format": output_mode,
-                "enable_free_cloud_memory": bool(use_cloud_memory),
-                "free_cloud_manifest_url": "",
-            }
+            quick_inflight.set()
+            cancel_event.clear()
             try:
+                input_path, parsed_url, parsed_text = resolve_source_inputs(
+                    input_mode_label,
+                    file_obj,
+                    url,
+                    text,
+                    fallback_file_path=remembered_quick_file,
+                )
+                if not input_path and not parsed_url and not parsed_text:
+                    return (
+                        "Please provide a file, URL, or text.",
+                        runtime_state_badge("idle", "Waiting for input"),
+                        "_No chapter preview yet._",
+                        None,
+                        None,
+                        "",
+                    )
+                primary_engine = "edge-tts"
+                narrator = "en-US-GuyNeural"
+                dialogue = "en-US-JennyNeural"
+                output_mode = "m4b" if str(output_fmt).lower().startswith("m4b") else "mp3"
+                settings = {
+                    "tts_engine": primary_engine,
+                    "narrator_voice": narrator,
+                    "dialogue_voice": dialogue,
+                    "character_voices": {},
+                    "pronunciation_overrides": {},
+                    "speed_multiplier": 1.0,
+                    "speed_mode": "post_process",
+                    "max_concurrent": 1,
+                    "max_queue_size": LOW_MEMORY_QUEUE_SIZE,
+                    "cache_max_size_mb": QUICK_CACHE_MAX_SIZE_MB,
+                    "background_music": None,
+                    "music_duck_db": -15,
+                    "output_format": output_mode,
+                    "enable_free_cloud_memory": bool(use_cloud_memory),
+                    "free_cloud_manifest_url": "",
+                    "tts_min_request_interval_s": DEFAULT_TTS_MIN_REQUEST_INTERVAL_S,
+                }
                 progress(0.01, desc="Parsing source")
+                run_started = time.time()
                 manifest, manifest_path = stage_parse(
                     input_path=input_path,
                     settings=settings,
@@ -3315,8 +3480,12 @@ def build_ui():
                 remember_last_project(project_id=f"local::{manifest_path}", manifest_path=manifest_path, cloud_url="")
 
                 def progress_cb(done: int, total: int, desc: str) -> None:
+                    elapsed = max(0.001, time.time() - run_started)
+                    rate = done / elapsed if done > 0 else 0.0
+                    remaining = max(0, total - done)
+                    eta = (remaining / rate) if rate > 0 else 0.0
                     ratio = 0.05 + ((done / total) * 0.8 if total else 0.8)
-                    progress(min(ratio, 0.9), desc=f"Segment {done}/{total} · {desc}")
+                    progress(min(ratio, 0.9), desc=f"Segment {done}/{total} · ETA {format_eta(eta)} · {desc}")
 
                 progress(0.05, desc="Generating audio")
                 manifest = run_coro_sync(
@@ -3393,7 +3562,16 @@ def build_ui():
                 )
                 progress(1.0, desc="Done")
                 cloud_line = f"\nCloud memory URL: `{cloud_url}`" if cloud_url else ""
-                status = f"Done. Your audiobook is ready to play/download.{cloud_line}"
+                elapsed_total = max(0.0, time.time() - run_started)
+                total_segments = int(manifest.get("progress", {}).get("total_segments", 0))
+                completed_segments = int(manifest.get("progress", {}).get("completed_segments", 0))
+                status = (
+                    "### Quick flow summary\n"
+                    f"- ✅ Generated segments: **{completed_segments}/{total_segments}**\n"
+                    f"- ✅ Output ready: **{Path(output_path).name}**\n"
+                    f"- ⏱️ Runtime: **{format_eta(elapsed_total)}**"
+                    f"{cloud_line}"
+                )
                 if cloud_backup_warning:
                     status += f"\n{cloud_backup_warning}"
                 return (
@@ -3406,13 +3584,15 @@ def build_ui():
                 )
             except Exception as exc:
                 return (
-                    f"Quick mode failed: {exc}",
+                    format_runtime_error("Quick mode failed", exc),
                     runtime_state_badge("failed", "Quick flow failed"),
                     "_No chapter preview yet._",
                     None,
                     None,
                     "",
                 )
+            finally:
+                quick_inflight.clear()
 
         voice_browser_outputs = [voice_page_state, voice_page_label, voice_prev_page_btn, voice_next_page_btn]
         for label_component, value_component, button_component in zip(
