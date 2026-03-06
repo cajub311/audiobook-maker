@@ -7,10 +7,12 @@ module.exports = function handler(req, res) {
       "Install dependencies: pip install -r requirements.txt",
       "Start app: python3 audiobook_creator_v7.py",
       "Open http://localhost:7860 in your browser",
-      "Use Easy Mobile Mode tab for fastest setup",
+      "Use Easy Mobile Mode tab for fastest setup (one-button flow)",
       "Optional: use System tab for free cloud manifest backup/restore"
     ],
+    web_demo: "/web/index.html",
     note: "Use python on systems where python3 is not available.",
-    health_endpoint: "/api/health"
+    health_endpoint: "/api/health",
+    process_endpoint: "/api/process"
   });
 };

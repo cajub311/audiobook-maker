@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Audiobook Maker - Web Demo</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #0b1020;
+        color: #e2e8f0;
+      }
+      main { max-width: 900px; margin: 0 auto; padding: 16px 16px 96px; }
+      .card {
+        background: rgba(15, 23, 42, 0.75);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 14px;
+        padding: 14px;
+        margin-bottom: 12px;
+      }
+      textarea {
+        width: 100%;
+        min-height: 220px;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        background: rgba(15, 23, 42, 0.7);
+        color: #e2e8f0;
+        padding: 10px;
+        box-sizing: border-box;
+      }
+      .grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      button {
+        min-height: 52px;
+        border: 0;
+        border-radius: 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .primary { background: #4f46e5; color: #fff; }
+      .secondary { background: #1e293b; color: #e2e8f0; border: 1px solid rgba(148, 163, 184, 0.25); }
+      .status {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        background: linear-gradient(135deg, #4f46e5, #7c3aed);
+        border-radius: 10px;
+        padding: 10px;
+        margin-bottom: 12px;
+      }
+      @media (max-width: 768px) {
+        .grid { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Audiobook Maker Web Demo</h1>
+      <p>Demo mode creates a short preview (about 5 minutes max) directly in browser. Full generation still uses Python app.</p>
+
+      <div id="status" class="status">Ready.</div>
+
+      <section class="card">
+        <label for="input"><strong>Paste text</strong></label>
+        <textarea id="input" placeholder="Paste text for a short browser demo..."></textarea>
+      </section>
+
+      <section class="card">
+        <div class="grid">
+          <button id="demo-generate" class="primary">Generate 5-minute demo</button>
+          <button id="demo-speak" class="secondary">Play in browser voice</button>
+          <button id="demo-save" class="secondary">Save draft locally</button>
+          <button id="demo-download" class="secondary">Download demo text</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>Output</h3>
+        <pre id="output">No demo generated yet.</pre>
+      </section>
+    </main>
+
+    <script type="module">
+      import { makeDemoProject } from "./processor.js";
+      import { loadDraft, saveDraft } from "./storage.js";
+      import { tryCloudProcess } from "./api-client.js";
+
+      const input = document.getElementById("input");
+      const status = document.getElementById("status");
+      const output = document.getElementById("output");
+      let currentDemo = null;
+
+      const setStatus = (text) => { status.textContent = text; };
+
+      input.value = loadDraft();
+
+      document.getElementById("demo-save").addEventListener("click", () => {
+        saveDraft(input.value || "");
+        setStatus("Draft saved locally.");
+      });
+
+      document.getElementById("demo-generate").addEventListener("click", async () => {
+        if (!(input.value || "").trim()) {
+          setStatus("Paste some text first.");
+          return;
+        }
+        setStatus("Creating browser demo project...");
+        currentDemo = makeDemoProject(input.value);
+        output.textContent = JSON.stringify(currentDemo.summary, null, 2);
+        const cloud = await tryCloudProcess({ text: currentDemo.previewText, demoMode: true });
+        if (cloud.ok) {
+          setStatus("Demo ready. Cloud API endpoint responded.");
+        } else {
+          setStatus("Demo ready. Cloud API not enabled yet, using local browser demo.");
+        }
+      });
+
+      document.getElementById("demo-speak").addEventListener("click", () => {
+        if (!currentDemo) {
+          setStatus("Generate demo first.");
+          return;
+        }
+        if (!("speechSynthesis" in window)) {
+          setStatus("Browser speech synthesis not available.");
+          return;
+        }
+        const utterance = new SpeechSynthesisUtterance(currentDemo.previewText);
+        utterance.rate = 1.0;
+        utterance.onstart = () => setStatus("Playing browser voice preview...");
+        utterance.onend = () => setStatus("Playback finished.");
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(utterance);
+      });
+
+      document.getElementById("demo-download").addEventListener("click", () => {
+        if (!currentDemo) {
+          setStatus("Generate demo first.");
+          return;
+        }
+        const blob = new Blob([currentDemo.previewText], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "audiobook-demo.txt";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        setStatus("Demo text downloaded.");
+      });
+    </script>
+  </body>
+</html>

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#0f172a" />
+    <meta name="theme-color" content="#4f46e5" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <title>Audiobook Maker V7</title>
@@ -23,6 +23,31 @@
         }
       };
     </script>
+    <style>
+      body {
+        padding: max(0px, env(safe-area-inset-top)) max(0px, env(safe-area-inset-right))
+          max(0px, env(safe-area-inset-bottom)) max(0px, env(safe-area-inset-left));
+      }
+      button {
+        position: relative;
+        overflow: hidden;
+      }
+      button:active::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        transform: translate(-50%, -50%);
+        background: rgba(255, 255, 255, 0.45);
+        animation: launcher-ripple 0.5s ease-out forwards;
+      }
+      @keyframes launcher-ripple {
+        to { width: 220px; height: 220px; opacity: 0; }
+      }
+    </style>
   </head>
   <body class="bg-slate-50 text-slate-900 transition-colors duration-300 dark:bg-slate-950 dark:text-slate-100">
     <div
@@ -81,6 +106,9 @@
           <div class="mt-6 flex flex-wrap gap-3">
             <a href="#quickstart" class="w-full rounded-xl bg-brand-600 px-4 py-3 text-center font-semibold text-white hover:bg-brand-500 sm:w-auto">
               Start in 2 minutes
+            </a>
+            <a href="/web/index.html" class="w-full rounded-xl border border-indigo-300 px-4 py-3 text-center font-semibold text-indigo-200 sm:w-auto">
+              Try Web Demo
             </a>
             <a href="/api/launch" class="w-full rounded-xl border border-slate-300 px-4 py-3 text-center font-semibold dark:border-slate-700 sm:w-auto">API Launch JSON</a>
             <button id="share-btn" class="w-full rounded-xl border border-slate-300 px-4 py-3 font-semibold dark:border-slate-700 sm:w-auto">
@@ -249,6 +277,7 @@
           <div class="mt-3 flex flex-wrap gap-2">
             <a href="/api/launch" class="rounded-lg bg-slate-900 px-3 py-1.5 text-sm text-white dark:bg-slate-100 dark:text-slate-900">/api/launch</a>
             <a href="/api/health" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">/api/health</a>
+            <a href="/api/process" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">/api/process</a>
           </div>
           <pre id="api-output" class="mt-3 max-h-64 overflow-auto rounded-xl bg-slate-100 p-3 text-xs dark:bg-slate-950"><code>Loading...</code></pre>
           <p id="pwa-status" class="mt-2 text-xs text-slate-500 dark:text-slate-400">Checking launcher status...</p>
@@ -301,6 +330,14 @@
       const installNow = document.getElementById("install-now");
       const installDismiss = document.getElementById("install-dismiss");
       const statusNode = document.getElementById("pwa-status");
+      const showToast = (message, type = "info") => {
+        const toast = document.createElement("div");
+        const bg = type === "error" ? "#dc2626" : type === "success" ? "#059669" : "#334155";
+        toast.textContent = message;
+        toast.style.cssText = `position:fixed;left:12px;right:12px;bottom:72px;z-index:60;padding:12px;border-radius:10px;background:${bg};color:#fff;font-size:14px;box-shadow:0 8px 28px rgba(2,6,23,.45);`;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2600);
+      };
 
       const preferredTheme = localStorage.getItem("abm-theme");
       const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -322,9 +359,11 @@
           try {
             await navigator.clipboard.writeText(text);
             btn.textContent = "Copied";
+            showToast("Copied to clipboard", "success");
             setTimeout(() => (btn.textContent = "Copy"), 1200);
           } catch (_err) {
             btn.textContent = "Failed";
+            showToast("Copy failed", "error");
           }
         });
       }
@@ -340,7 +379,7 @@
             await navigator.share(data);
           } else {
             await navigator.clipboard.writeText(window.location.href);
-            alert("Link copied to clipboard.");
+            showToast("Link copied to clipboard", "success");
           }
         } catch (_err) {}
       });
@@ -392,9 +431,13 @@
         if (!installPromptEvent) return;
         await installPromptEvent.prompt();
         installBanner.classList.add("hidden");
+        showToast("Install prompt opened", "info");
       });
 
-      installDismiss.addEventListener("click", () => installBanner.classList.add("hidden"));
+      installDismiss.addEventListener("click", () => {
+        installBanner.classList.add("hidden");
+        showToast("Install dismissed", "info");
+      });
 
       fetch("/api/launch")
         .then((res) => res.json())

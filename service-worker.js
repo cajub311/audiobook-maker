@@ -1,13 +1,18 @@
-const CACHE_NAME = "audiobook-launcher-v3";
+const CACHE_NAME = "audiobook-launcher-v4";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/website/index.html",
+  "/web/index.html",
+  "/web/processor.js",
+  "/web/api-client.js",
+  "/web/storage.js",
   "/manifest.webmanifest",
   "/icon.svg",
   "/assets/gradio-ui-preview.svg",
   "/api/launch",
-  "/api/health"
+  "/api/health",
+  "/api/process"
 ];
 
 self.addEventListener("install", (event) => {

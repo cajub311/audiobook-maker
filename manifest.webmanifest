@@ -8,7 +8,7 @@
   "display_override": ["standalone", "browser"],
   "orientation": "portrait-primary",
   "background_color": "#111827",
-  "theme_color": "#111827",
+  "theme_color": "#4f46e5",
   "categories": ["productivity", "utilities", "books"],
   "icons": [
     {
