@@ -946,6 +946,14 @@ def stage_parse(
     manifest["runtime"]["project_id"] = f"{slugify(book_title)}_{source_fingerprint}"
     manifest["runtime"]["source_fingerprint"] = source_fingerprint
     manifest["runtime"]["book_profile_key"] = book_key
+    manifest.setdefault("runtime", {}).setdefault("metrics", {})["parse_details"] = {
+        "chapters": len(manifest.get("chapters", [])),
+        "segments": int(manifest["progress"].get("total_segments", 0)),
+        "characters": int(len(character_occurrences)),
+        "total_chars": int(total_chars),
+        "dialogue_strategy": str(settings.get("dialogue_detection_strategy", DEFAULT_DIALOGUE_STRATEGY)),
+        "updated_at": now_iso(),
+    }
     record_stage_timing(manifest, "parse", parse_started)
 
     manifest_name = f"{slugify(book_title)}_{source_fingerprint}_manifest.json"
@@ -993,10 +1001,19 @@ async def stage_generate(
 
     total = len(pending)
     done = 0
+    generate_stats = {"cache_hits": 0, "generated": 0, "errors": 0}
     manifest["progress"]["generation_started"] = manifest["progress"].get("generation_started") or now_iso()
     update_run_state(manifest, "generating", "Generating segment audio", manifest_path)
 
     if total == 0:
+        manifest.setdefault("runtime", {}).setdefault("metrics", {})["generate_details"] = {
+            "pending_segments": 0,
+            "cache_hits": 0,
+            "generated": 0,
+            "errors": 0,
+            "cache_hit_rate": 1.0,
+            "updated_at": now_iso(),
+        }
         if progress_callback:
             progress_callback(1, 1, "All segments already cached.")
         update_run_state(manifest, "generated", "All segments already cached", manifest_path)
@@ -1032,6 +1049,7 @@ async def stage_generate(
                     segment["cache_file"] = cached
                     segment["duration_seconds"] = duration
                     segment["status"] = "cached"
+                    generate_stats["cache_hits"] += 1
             else:
                 ext = ".mp3" if "edge" in engine_name.lower() else ".wav"
                 tmp_path = str(TEMP_DIR / f"gen_{ch_idx}_{seg_idx}_{uuid.uuid4().hex}{ext}")
@@ -1062,6 +1080,7 @@ async def stage_generate(
                     segment["status"] = "cached"
                     segment["speed_mode"] = speed_mode
                     segment["speed_applied"] = speed if speed_mode != "native" else tts_speed
+                    generate_stats["generated"] += 1
 
             async with lock:
                 done += 1
@@ -1083,6 +1102,7 @@ async def stage_generate(
                 segment["status"] = "error"
                 segment["error"] = str(exc)
                 done += 1
+                generate_stats["errors"] += 1
                 if manifest_path:
                     save_manifest(manifest, manifest_path)
                 if progress_callback:
@@ -1123,6 +1143,22 @@ async def stage_generate(
         update_run_state(manifest, "failed", "Generation completed with errors", manifest_path)
     else:
         update_run_state(manifest, "generated", "All segments generated", manifest_path)
+    attempted = max(1, total)
+    manifest.setdefault("runtime", {}).setdefault("metrics", {})["generate_details"] = {
+        "pending_segments": int(total),
+        "cache_hits": int(generate_stats["cache_hits"]),
+        "generated": int(generate_stats["generated"]),
+        "errors": int(generate_stats["errors"]),
+        "cache_hit_rate": round(float(generate_stats["cache_hits"]) / float(attempted), 4),
+        "updated_at": now_iso(),
+    }
+    logger.info(
+        "generate stats pending=%s cache_hits=%s generated=%s errors=%s",
+        total,
+        generate_stats["cache_hits"],
+        generate_stats["generated"],
+        generate_stats["errors"],
+    )
     record_stage_timing(manifest, "generate", generate_started)
     return manifest
 
@@ -1929,6 +1965,7 @@ def build_ui():
 
     ensure_runtime_dirs()
     cancel_event = threading.Event()
+    parse_inflight = threading.Event()
     generate_inflight = threading.Event()
     quick_inflight = threading.Event()
     theme = (
@@ -2454,6 +2491,19 @@ def build_ui():
             cloud_url: str,
             progress=gr.Progress(),
         ):
+            if parse_inflight.is_set():
+                return (
+                    "Parse already running. Please wait for completion.",
+                    "_No data yet._",
+                    "_No chapter preview yet._",
+                    [],
+                    [],
+                    "",
+                    "",
+                    "",
+                    gr.Textbox(value=""),
+                )
+            parse_inflight.set()
             try:
                 input_path, parsed_url, parsed_text = resolve_source_inputs(
                     input_mode_label,
@@ -2564,6 +2614,8 @@ def build_ui():
                     "",
                     gr.Textbox(value=""),
                 )
+            finally:
+                parse_inflight.clear()
 
         def on_cancel(manifest_path: str):
             cancel_event.set()
@@ -2759,6 +2811,11 @@ def build_ui():
                 if metrics_md:
                     status_lines.append("")
                     status_lines.append(metrics_md)
+                generate_details = manifest.get("runtime", {}).get("metrics", {}).get("generate_details", {})
+                if isinstance(generate_details, dict):
+                    hit_rate = float(generate_details.get("cache_hit_rate", 0.0) or 0.0) * 100.0
+                    status_lines.append(f"- 📈 Cache hit rate: **{hit_rate:.1f}%**")
+                    status_lines.append(f"- ⚠️ Segment errors: **{int(generate_details.get('errors', 0) or 0)}**")
                 if cloud_backup_note:
                     status_lines.append(f"- ⚠️ {cloud_backup_note.strip()}")
                 return (
@@ -3062,6 +3119,10 @@ def build_ui():
                 metrics_md = format_runtime_metrics(manifest)
                 if metrics_md:
                     status = f"{status}\n\n{metrics_md}"
+                generate_details = manifest.get("runtime", {}).get("metrics", {}).get("generate_details", {})
+                if isinstance(generate_details, dict):
+                    hit_rate = float(generate_details.get("cache_hit_rate", 0.0) or 0.0) * 100.0
+                    status += f"\n- 📈 Cache hit rate: **{hit_rate:.1f}%**"
                 if cloud_backup_warning:
                     status += f"\n{cloud_backup_warning}"
                 return (
