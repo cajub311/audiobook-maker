@@ -215,11 +215,12 @@ def save_app_state(state: dict[str, Any]) -> None:
     atomic_json_write(APP_STATE_PATH, payload, keep_backup=True)
 
 
-def remember_last_project(project_id: str, manifest_path: str, cloud_url: str = "") -> None:
+def remember_last_project(project_id: str, manifest_path: str, cloud_url: Optional[str] = None) -> None:
     state = load_app_state()
     state["last_project_id"] = project_id
     state["last_manifest_path"] = manifest_path
-    state["last_cloud_url"] = cloud_url or ""
+    if cloud_url is not None and str(cloud_url).strip():
+        state["last_cloud_url"] = str(cloud_url).strip()
     save_app_state(state)
 
 
@@ -276,8 +277,9 @@ def pronunciation_overrides_to_rows(overrides: dict[str, str]) -> list[list[str]
 def choose_resume_project_id(
     inventory: dict[str, dict[str, str]],
     selected_project: Optional[str] = None,
+    prefer_last: bool = False,
 ) -> Optional[str]:
-    if selected_project and selected_project in inventory:
+    if selected_project and selected_project in inventory and not prefer_last:
         return selected_project
     state = load_app_state()
     last_id = str(state.get("last_project_id", "") or "")
@@ -1232,7 +1234,7 @@ def load_manifest_from_free_cloud(url: str) -> dict[str, Any]:
     data = json.loads(payload)
     if not isinstance(data, dict):
         raise RuntimeError("Cloud manifest payload is not a JSON object.")
-    return data
+    return ensure_manifest_defaults(data)
 
 
 def infer_speaker_for_span(
@@ -1270,6 +1272,53 @@ def update_run_state(
     runtime["updated_at"] = now_iso()
     if manifest_path:
         save_manifest(manifest, manifest_path)
+
+
+def ensure_manifest_defaults(manifest: dict[str, Any]) -> dict[str, Any]:
+    manifest.setdefault("settings", {})
+    manifest.setdefault("book", {})
+    manifest.setdefault("chapters", [])
+    progress = manifest.setdefault("progress", {})
+    progress.setdefault("generation_started", None)
+    progress.setdefault("estimated_remaining_seconds", 0)
+    runtime = manifest.setdefault("runtime", {})
+    runtime.setdefault("state", "idle")
+    runtime.setdefault("message", "")
+    runtime.setdefault("updated_at", now_iso())
+    runtime.setdefault(
+        "assembly",
+        {
+            "concat_done": False,
+            "music_mixed": False,
+            "speed_adjusted": False,
+            "normalized": False,
+            "output_done": False,
+        },
+    )
+    runtime.setdefault("cloud_backup", {"enabled": False, "url": ""})
+
+    total_segments = 0
+    completed_segments = 0
+    for c_idx, chapter in enumerate(manifest.get("chapters", [])):
+        chapter.setdefault("index", c_idx)
+        chapter.setdefault("title", f"Chapter {c_idx + 1}")
+        chapter.setdefault("segments", [])
+        for s_idx, seg in enumerate(chapter.get("segments", [])):
+            seg.setdefault("index", s_idx)
+            seg.setdefault("speaker", "narrator")
+            seg.setdefault("voice", manifest["settings"].get("narrator_voice", "en-US-GuyNeural"))
+            seg.setdefault("status", "pending")
+            seg.setdefault("cache_file", None)
+            seg.setdefault("duration_seconds", None)
+            total_segments += 1
+            if seg.get("status") == "cached":
+                completed_segments += 1
+        chapter["status"] = "complete" if all(seg.get("status") == "cached" for seg in chapter.get("segments", [])) else "pending"
+    progress.setdefault("total_segments", total_segments)
+    progress.setdefault("completed_segments", completed_segments)
+    progress.setdefault("last_completed_chapter", -1)
+    progress.setdefault("last_completed_segment", -1)
+    return manifest
 
 
 def build_manifest(settings: dict[str, Any], chapters: list[dict[str, Any]], book: dict[str, Any]) -> dict[str, Any]:
@@ -1508,6 +1557,7 @@ async def stage_generate(
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> dict[str, Any]:
     ensure_runtime_dirs()
+    manifest = ensure_manifest_defaults(manifest)
     settings = manifest.get("settings", {})
     engine_name = settings.get("tts_engine", "edge-tts")
     engine = create_tts_engine(engine_name)
@@ -2130,7 +2180,7 @@ def voice_catalog_for_engine(engine_label: str) -> list[dict[str, str]]:
     return catalog
 
 
-def _voice_browser_pager_updates(catalog: list[dict[str, str]], page_idx: int) -> tuple[Any, ...]:
+def _voice_browser_pager_updates(catalog: list[dict[str, str]], page_idx: int, gr_module: Any) -> tuple[Any, ...]:
     total = len(catalog)
     total_pages = max(1, (total + VOICE_BROWSER_PAGE_SIZE - 1) // VOICE_BROWSER_PAGE_SIZE)
     safe_page = max(0, min(page_idx, total_pages - 1))
@@ -2150,24 +2200,24 @@ def _voice_browser_pager_updates(catalog: list[dict[str, str]], page_idx: int) -
                 label += f"  \n`{locale}`"
             row_updates.extend(
                 [
-                    gr.Markdown(value=label, visible=True),
-                    gr.Textbox(value=voice_name, visible=False),
-                    gr.Button(visible=True, interactive=True),
+                    gr_module.Markdown(value=label, visible=True),
+                    gr_module.Textbox(value=voice_name, visible=False),
+                    gr_module.Button(visible=True, interactive=True),
                 ]
             )
         else:
             row_updates.extend(
                 [
-                    gr.Markdown(value="", visible=False),
-                    gr.Textbox(value="", visible=False),
-                    gr.Button(visible=False, interactive=False),
+                    gr_module.Markdown(value="", visible=False),
+                    gr_module.Textbox(value="", visible=False),
+                    gr_module.Button(visible=False, interactive=False),
                 ]
             )
     return (
         safe_page,
-        gr.Markdown(value=page_label),
-        gr.Button(interactive=prev_interactive),
-        gr.Button(interactive=next_interactive),
+        gr_module.Markdown(value=page_label),
+        gr_module.Button(interactive=prev_interactive),
+        gr_module.Button(interactive=next_interactive),
         *row_updates,
     )
 
@@ -2638,19 +2688,26 @@ def build_ui():
 
         def on_voice_browser_refresh(engine_label: str):
             catalog = voice_catalog_for_engine(engine_label)
-            pager = _voice_browser_pager_updates(catalog, 0)
+            pager = _voice_browser_pager_updates(catalog, 0, gr)
             return (catalog, *pager)
 
         def on_voice_browser_prev(catalog: list[dict[str, str]], page_idx: int):
-            return _voice_browser_pager_updates(catalog or [], int(page_idx) - 1)
+            return _voice_browser_pager_updates(catalog or [], int(page_idx) - 1, gr)
 
         def on_voice_browser_next(catalog: list[dict[str, str]], page_idx: int):
-            return _voice_browser_pager_updates(catalog or [], int(page_idx) + 1)
+            return _voice_browser_pager_updates(catalog or [], int(page_idx) + 1, gr)
 
         def on_refresh_projects(selected_project: Optional[str] = None):
             inventory = collect_project_inventory()
             choices = list(inventory.keys())
             selected = choose_resume_project_id(inventory, selected_project)
+            details = project_meta_to_markdown(inventory.get(selected))
+            return gr.Dropdown(choices=choices, value=selected), inventory, details, ""
+
+        def on_resume_last_projects():
+            inventory = collect_project_inventory()
+            choices = list(inventory.keys())
+            selected = choose_resume_project_id(inventory, selected_project=None, prefer_last=True)
             details = project_meta_to_markdown(inventory.get(selected))
             return gr.Dropdown(choices=choices, value=selected), inventory, details, ""
 
@@ -2719,6 +2776,7 @@ def build_ui():
                 else:
                     manifest_path = str(meta.get("manifest_path", "") or "")
                     manifest = load_manifest(manifest_path)
+                    manifest = ensure_manifest_defaults(manifest)
                     cloud_url = str(manifest.get("runtime", {}).get("cloud_backup", {}).get("url", "") or "")
                 chapter_rows = build_chapter_table(manifest)
                 preview_md = build_chapter_preview_markdown(manifest)
@@ -2876,14 +2934,17 @@ def build_ui():
                     raw_text=parsed_text,
                 )
                 cloud_url_effective = str(cloud_url or "")
+                cloud_warning = ""
                 if cloud_enabled and not cloud_url_effective:
-                    with contextlib.suppress(Exception):
+                    try:
                         cloud_url_effective = upload_manifest_to_free_cloud(manifest)
                         manifest.setdefault("runtime", {}).setdefault("cloud_backup", {})
                         manifest["runtime"]["cloud_backup"]["enabled"] = True
                         manifest["runtime"]["cloud_backup"]["url"] = cloud_url_effective
                         manifest["settings"]["free_cloud_manifest_url"] = cloud_url_effective
                         save_manifest(manifest, manifest_path)
+                    except Exception as exc:
+                        cloud_warning = f" Cloud backup warning: {exc}"
                 chapter_rows = build_chapter_table(manifest)
                 preview_md = build_chapter_preview_markdown(manifest)
                 char_rows = build_character_table(manifest)
@@ -2899,6 +2960,8 @@ def build_ui():
                     f"**{manifest['progress']['total_segments']}** segments. "
                     f"Estimated generation: **~{estimate // 60} min**."
                 )
+                if cloud_warning:
+                    status += cloud_warning
                 return (
                     status,
                     rows_to_markdown(["Chapter", "Segments", "Characters Found", "Cache Status"], chapter_rows),
@@ -2958,6 +3021,7 @@ def build_ui():
             cancel_event.clear()
             try:
                 manifest = load_manifest(manifest_path)
+                manifest = ensure_manifest_defaults(manifest)
                 settings = manifest.get("settings", {})
                 settings["tts_engine"] = normalize_engine_label(engine_label)
                 settings["narrator_voice"] = narrator or settings.get("narrator_voice", "en-US-GuyNeural")
@@ -3058,10 +3122,15 @@ def build_ui():
                 )
                 progress(1.0, desc="Done")
                 if settings.get("enable_free_cloud_memory"):
-                    with contextlib.suppress(Exception):
+                    try:
                         cloud_link = upload_manifest_to_free_cloud(manifest)
                         settings["free_cloud_manifest_url"] = cloud_link
                         manifest["runtime"]["cloud_backup"] = {"enabled": True, "url": cloud_link}
+                        cloud_backup_note = f" Cloud backup updated: {cloud_link}"
+                    except Exception as exc:
+                        cloud_backup_note = f" Cloud backup warning: {exc}"
+                else:
+                    cloud_backup_note = ""
                 remember_last_project(
                     project_id=f"local::{manifest_path}",
                     manifest_path=manifest_path,
@@ -3070,11 +3139,11 @@ def build_ui():
                 save_manifest(manifest, manifest_path)
                 progress_rows = build_chapter_progress(manifest)
                 return (
-                    "Generation complete.",
+                    f"Generation complete.{cloud_backup_note}",
                     rows_to_markdown(["Chapter", "Status", "Segments Done"], progress_rows),
                     output_path,
                     output_path,
-                    runtime_state_badge("completed", "Output ready"),
+                    runtime_state_badge("completed", "Output ready" if not cloud_backup_note else "Output ready (check note)"),
                 )
             except Exception as exc:
                 if "manifest" in locals():
@@ -3127,6 +3196,7 @@ def build_ui():
                 )
             try:
                 manifest = load_manifest_from_free_cloud(cloud_url)
+                manifest = ensure_manifest_defaults(manifest)
                 title = manifest.get("book", {}).get("title", "Cloud_Manifest")
                 cloud_fingerprint = hashlib.md5(cloud_url.strip().encode("utf-8")).hexdigest()[:10]
                 manifest_name = f"{slugify(title)}_{cloud_fingerprint}_cloud_manifest.json"
@@ -3307,12 +3377,15 @@ def build_ui():
                 )
 
                 cloud_url = ""
+                cloud_backup_warning = ""
                 if use_cloud_memory:
-                    with contextlib.suppress(Exception):
+                    try:
                         cloud_url = upload_manifest_to_free_cloud(manifest)
                         manifest["runtime"]["cloud_backup"] = {"enabled": True, "url": cloud_url}
                         manifest["settings"]["free_cloud_manifest_url"] = cloud_url
                         save_manifest(manifest, manifest_path)
+                    except Exception as exc:
+                        cloud_backup_warning = f" Cloud backup warning: {exc}"
                 remember_last_project(
                     project_id=f"local::{manifest_path}",
                     manifest_path=manifest_path,
@@ -3321,9 +3394,11 @@ def build_ui():
                 progress(1.0, desc="Done")
                 cloud_line = f"\nCloud memory URL: `{cloud_url}`" if cloud_url else ""
                 status = f"Done. Your audiobook is ready to play/download.{cloud_line}"
+                if cloud_backup_warning:
+                    status += f"\n{cloud_backup_warning}"
                 return (
                     status,
-                    runtime_state_badge("completed", "Quick flow complete"),
+                    runtime_state_badge("completed", "Quick flow complete" if not cloud_backup_warning else "Quick flow complete (backup warning)"),
                     preview_md,
                     output_path,
                     output_path,
@@ -3396,8 +3471,8 @@ def build_ui():
             outputs=[project_selector, project_map_state, project_details, project_action_status],
         )
         resume_evt = resume_last_btn.click(
-            on_refresh_projects,
-            inputs=[project_selector],
+            on_resume_last_projects,
+            inputs=[],
             outputs=[project_selector, project_map_state, project_details, project_action_status],
         )
         resume_evt.then(
