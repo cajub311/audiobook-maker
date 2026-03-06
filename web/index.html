@@ -63,13 +63,16 @@
 
       <section class="card">
         <label for="input"><strong>Paste text</strong></label>
+        <input id="file-input" type="file" accept=".txt,text/plain" style="margin: 8px 0 10px; display: block;" />
         <textarea id="input" placeholder="Paste text for a short browser demo..."></textarea>
+        <p id="stats" style="margin: 8px 0 0; font-size: 13px; opacity: 0.9;">Words: 0 · Est: 0m 0s</p>
       </section>
 
       <section class="card">
         <div class="grid">
           <button id="demo-generate" class="primary">Generate 5-minute demo</button>
           <button id="demo-speak" class="secondary">Play in browser voice</button>
+          <button id="demo-share" class="secondary">Share demo text</button>
           <button id="demo-save" class="secondary">Save draft locally</button>
           <button id="demo-download" class="secondary">Download demo text</button>
         </div>
@@ -87,13 +90,35 @@
       import { pollCloudProcess, startCloudProcess } from "./api-client.js";
 
       const input = document.getElementById("input");
+      const fileInput = document.getElementById("file-input");
       const status = document.getElementById("status");
       const output = document.getElementById("output");
+      const stats = document.getElementById("stats");
       let currentDemo = null;
 
       const setStatus = (text) => { status.textContent = text; };
+      const updateStats = () => {
+        const text = String(input.value || "").trim();
+        const words = text ? text.split(/\s+/).length : 0;
+        const chars = text.length;
+        const sec = Math.max(0, Math.round(chars / 28));
+        const min = Math.floor(sec / 60);
+        const rem = sec % 60;
+        stats.textContent = `Words: ${words} · Chars: ${chars} · Est: ${min}m ${rem}s`;
+      };
 
       input.value = loadDraft();
+      updateStats();
+      input.addEventListener("input", updateStats);
+
+      fileInput.addEventListener("change", async () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        const text = await file.text();
+        input.value = text;
+        updateStats();
+        setStatus(`Loaded ${file.name} into demo editor.`);
+      });
 
       document.getElementById("demo-save").addEventListener("click", () => {
         saveDraft(input.value || "");
@@ -145,6 +170,28 @@
         utterance.onend = () => setStatus("Playback finished.");
         window.speechSynthesis.cancel();
         window.speechSynthesis.speak(utterance);
+      });
+
+      document.getElementById("demo-share").addEventListener("click", async () => {
+        if (!currentDemo) {
+          setStatus("Generate demo first.");
+          return;
+        }
+        const shareText = currentDemo.previewText.slice(0, 1000);
+        try {
+          if (navigator.share) {
+            await navigator.share({
+              title: "Audiobook Maker demo text",
+              text: shareText,
+            });
+            setStatus("Shared demo text.");
+          } else {
+            await navigator.clipboard.writeText(shareText);
+            setStatus("Copied demo text to clipboard.");
+          }
+        } catch (_err) {
+          setStatus("Share cancelled.");
+        }
       });
 
       document.getElementById("demo-download").addEventListener("click", () => {
