@@ -17,6 +17,7 @@ import gc
 import hashlib
 import ipaddress
 import json
+import logging
 import os
 import re
 import shutil
@@ -72,12 +73,20 @@ from parsers.source import (
     extract_source_chapters as parser_extract_source_chapters,
     validate_local_input_file as parser_validate_local_input_file,
 )
+from cache.audio_cache import AudioCache as AudioCacheImpl, AudioCacheDeps
 from tts.engines import EngineDeps, TTSEngine, create_tts_engine as create_tts_engine_impl
 
 PREVIEW_SAMPLE_TEXT = (
     "This is a ten second voice preview for Audiobook Maker version seven. "
     "You are hearing the selected voice speaking naturally with clear pacing."
 )
+
+_LOG_LEVEL = str(os.environ.get("ABM_LOG_LEVEL", "INFO") or "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, _LOG_LEVEL, logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger("audiobook-maker")
 
 
 def ensure_runtime_dirs() -> None:
@@ -93,6 +102,15 @@ def slugify(value: str, fallback: str = "book") -> str:
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def record_stage_timing(manifest: dict[str, Any], stage: str, started_at: float) -> float:
+    elapsed = max(0.0, time.time() - started_at)
+    runtime = manifest.setdefault("runtime", {})
+    metrics = runtime.setdefault("metrics", {})
+    metrics[stage] = {"seconds": round(elapsed, 3), "updated_at": now_iso()}
+    logger.info("%s finished in %.2fs", stage, elapsed)
+    return elapsed
 
 
 def run_command(
@@ -176,6 +194,12 @@ def save_manifest(manifest: dict[str, Any], manifest_path: str | Path) -> None:
 
 
 def load_manifest(manifest_path: str | Path) -> dict[str, Any]:
+    """
+    Load a manifest with automatic backup recovery.
+
+    If the primary manifest is unreadable, this falls back to `<name>.bak`,
+    then attempts to rewrite the recovered payload back to primary storage.
+    """
     path = Path(manifest_path)
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -468,181 +492,19 @@ def create_tts_engine(engine_name: str) -> TTSEngine:
     return create_tts_engine_impl(engine_name, deps)
 
 
-class AudioCache:
+def _audio_cache_deps() -> AudioCacheDeps:
+    return AudioCacheDeps(
+        atomic_json_write_fn=atomic_json_write,
+        advisory_file_lock_fn=advisory_file_lock,
+        file_sha256_fn=file_sha256,
+        get_duration_ffprobe_fn=get_duration_ffprobe,
+        cache_key_schema_version=CACHE_KEY_SCHEMA_VERSION,
+    )
+
+
+class AudioCache(AudioCacheImpl):
     def __init__(self, cache_dir: str | Path = CACHE_DIR, max_size_mb: int = 500):
-        self.cache_dir = Path(cache_dir)
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.max_size_bytes = max_size_mb * 1024 * 1024
-        self.index_path = self.cache_dir / "cache_index.json"
-        self.lock_path = self.cache_dir / ".cache_index.lock"
-        self.index = self._load_index()
-        self.repair_index()
-
-    def _load_index(self) -> dict[str, dict[str, Any]]:
-        with advisory_file_lock(self.lock_path):
-            if not self.index_path.exists():
-                return {}
-            try:
-                with open(self.index_path, "r", encoding="utf-8") as f:
-                    payload = json.load(f)
-                return payload if isinstance(payload, dict) else {}
-            except Exception:
-                backup = self.index_path.with_suffix(".json.bak")
-                if backup.exists():
-                    with open(backup, "r", encoding="utf-8") as f:
-                        payload = json.load(f)
-                    return payload if isinstance(payload, dict) else {}
-                return {}
-
-    def _save_index(self) -> None:
-        with advisory_file_lock(self.lock_path):
-            atomic_json_write(self.index_path, self.index, keep_backup=True)
-
-    def _make_key(
-        self,
-        text: str,
-        voice: str,
-        engine: str,
-        speed: float,
-        pronunciation_hash: str = "",
-        speed_mode: str = "native",
-    ) -> str:
-        effective_speed = speed if speed_mode == "native" else 1.0
-        material = f"v={CACHE_KEY_SCHEMA_VERSION}|{text}|{voice}|{engine}|{effective_speed}|{pronunciation_hash}|{speed_mode}"
-        return hashlib.md5(material.encode("utf-8")).hexdigest()
-
-    def _is_cache_entry_valid(self, path: Path, entry: dict[str, Any]) -> bool:
-        if not path.exists() or path.stat().st_size <= 0:
-            return False
-        expected_duration = float(entry.get("duration", 0.0) or 0.0)
-        actual_duration = get_duration_ffprobe(str(path))
-        if actual_duration <= 0:
-            return False
-        if expected_duration > 0 and abs(actual_duration - expected_duration) > 0.75:
-            return False
-        expected_sha = str(entry.get("sha256", "") or "")
-        if expected_sha:
-            with contextlib.suppress(Exception):
-                if file_sha256(path) != expected_sha:
-                    return False
-        return True
-
-    def get(
-        self,
-        text: str,
-        voice: str,
-        engine: str,
-        speed: float = 1.0,
-        pronunciation_hash: str = "",
-        speed_mode: str = "native",
-    ) -> Optional[str]:
-        key = self._make_key(text, voice, engine, speed, pronunciation_hash=pronunciation_hash, speed_mode=speed_mode)
-        entry = self.index.get(key)
-        if not entry:
-            return None
-        path = self.cache_dir / entry.get("filename", "")
-        if not self._is_cache_entry_valid(path, entry):
-            self.index.pop(key, None)
-            self._save_index()
-            return None
-        entry["last_accessed"] = time.time()
-        self._save_index()
-        return str(path)
-
-    def put(
-        self,
-        text: str,
-        voice: str,
-        engine: str,
-        speed: float,
-        audio_path: str,
-        duration: float,
-        pronunciation_hash: str = "",
-        speed_mode: str = "native",
-    ) -> str:
-        key = self._make_key(text, voice, engine, speed, pronunciation_hash=pronunciation_hash, speed_mode=speed_mode)
-        ext = Path(audio_path).suffix or ".mp3"
-        cache_filename = f"{key}{ext}"
-        cache_path = self.cache_dir / cache_filename
-        if Path(audio_path).resolve() != cache_path.resolve():
-            shutil.copy2(audio_path, cache_path)
-        size = cache_path.stat().st_size if cache_path.exists() else 0
-        sha = file_sha256(cache_path) if cache_path.exists() else ""
-        self.index[key] = {
-            "filename": cache_filename,
-            "voice": voice,
-            "engine": engine,
-            "duration": float(duration),
-            "size_bytes": size,
-            "sha256": sha,
-            "key_schema_version": CACHE_KEY_SCHEMA_VERSION,
-            "pronunciation_hash": pronunciation_hash,
-            "speed_mode": speed_mode,
-            "created": time.time(),
-            "last_accessed": time.time(),
-        }
-        self._save_index()
-        self._enforce_size_limit()
-        return str(cache_path)
-
-    def _enforce_size_limit(self) -> None:
-        total_size = sum(v.get("size_bytes", 0) for v in self.index.values())
-        if total_size <= self.max_size_bytes:
-            return
-        keys = sorted(self.index.keys(), key=lambda k: self.index[k].get("last_accessed", 0))
-        while total_size > self.max_size_bytes and keys:
-            key = keys.pop(0)
-            entry = self.index.get(key, {})
-            path = self.cache_dir / entry.get("filename", "")
-            if path.exists():
-                total_size -= int(entry.get("size_bytes", 0))
-                with contextlib.suppress(Exception):
-                    path.unlink()
-            self.index.pop(key, None)
-        self._save_index()
-
-    def get_stats_for_manifest(self, manifest: dict[str, Any]) -> dict[str, dict[str, int]]:
-        stats: dict[str, dict[str, int]] = {}
-        for chapter in manifest.get("chapters", []):
-            total = len(chapter.get("segments", []))
-            cached = sum(1 for seg in chapter.get("segments", []) if seg.get("status") == "cached")
-            stats[chapter.get("title", f"Chapter {chapter.get('index', 0)+1}")] = {
-                "total": total,
-                "cached": cached,
-                "percent": round((cached / total) * 100) if total else 0,
-            }
-        return stats
-
-    def repair_index(self) -> dict[str, int]:
-        removed_stale = 0
-        seen_files: set[str] = set()
-        for key in list(self.index.keys()):
-            entry = self.index.get(key, {})
-            filename = str(entry.get("filename", "") or "")
-            if not filename:
-                self.index.pop(key, None)
-                removed_stale += 1
-                continue
-            seen_files.add(filename)
-            path = self.cache_dir / filename
-            if not self._is_cache_entry_valid(path, entry):
-                with contextlib.suppress(Exception):
-                    if path.exists():
-                        path.unlink()
-                self.index.pop(key, None)
-                removed_stale += 1
-
-        orphaned = 0
-        for file_path in self.cache_dir.iterdir():
-            if not file_path.is_file():
-                continue
-            if file_path.name in ("cache_index.json", "cache_index.json.bak", ".cache_index.lock"):
-                continue
-            if file_path.name not in seen_files:
-                orphaned += 1
-                # Keep unknown files, but mark metadata so users can clean manually.
-        self._save_index()
-        return {"removed_stale": removed_stale, "orphaned_files": orphaned}
+        super().__init__(cache_dir=cache_dir, max_size_mb=max_size_mb, deps=_audio_cache_deps())
 
 
 class PronunciationDict:
@@ -912,6 +774,7 @@ def stage_parse(
     url: Optional[str] = None,
     raw_text: Optional[str] = None,
 ) -> tuple[dict[str, Any], str]:
+    parse_started = time.time()
     ensure_runtime_dirs()
     settings = dict(settings or {})
     engine_name = settings.get("tts_engine", "edge-tts")
@@ -1096,6 +959,7 @@ def stage_parse(
     manifest["runtime"]["project_id"] = f"{slugify(book_title)}_{source_fingerprint}"
     manifest["runtime"]["source_fingerprint"] = source_fingerprint
     manifest["runtime"]["book_profile_key"] = book_key
+    record_stage_timing(manifest, "parse", parse_started)
 
     manifest_name = f"{slugify(book_title)}_{source_fingerprint}_manifest.json"
     manifest_path = str(MANIFESTS_DIR / manifest_name)
@@ -1110,6 +974,7 @@ async def stage_generate(
     cancel_event: Optional[threading.Event] = None,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> dict[str, Any]:
+    generate_started = time.time()
     ensure_runtime_dirs()
     manifest = ensure_manifest_defaults(manifest)
     settings = manifest.get("settings", {})
@@ -1148,6 +1013,7 @@ async def stage_generate(
         if progress_callback:
             progress_callback(1, 1, "All segments already cached.")
         update_run_state(manifest, "generated", "All segments already cached", manifest_path)
+        record_stage_timing(manifest, "generate", generate_started)
         return manifest
 
     lock = asyncio.Lock()
@@ -1270,6 +1136,7 @@ async def stage_generate(
         update_run_state(manifest, "failed", "Generation completed with errors", manifest_path)
     else:
         update_run_state(manifest, "generated", "All segments generated", manifest_path)
+    record_stage_timing(manifest, "generate", generate_started)
     return manifest
 
 
@@ -1405,6 +1272,7 @@ def stage_assemble(
     manifest_path: Optional[str] = None,
     cancel_event: Optional[threading.Event] = None,
 ) -> str:
+    assemble_started = time.time()
     ensure_runtime_dirs()
     if not ffmpeg_exists():
         raise RuntimeError("FFmpeg and ffprobe are required for assembly stage.")
@@ -1580,6 +1448,7 @@ def stage_assemble(
 
     mark("output_done", True, f"Output ready: {output_path.name}")
     update_run_state(manifest, "completed", "Assembly completed", manifest_path)
+    record_stage_timing(manifest, "assemble", assemble_started)
     return str(output_path)
 
 
@@ -1934,6 +1803,12 @@ def project_meta_to_markdown(meta: Optional[dict[str, str]]) -> str:
 
 
 def apply_character_voices_to_segments(manifest: dict[str, Any], char_map: dict[str, dict[str, Any]]) -> None:
+    """
+    Reconcile segment voice assignments with current character voice settings.
+
+    Any segment whose effective voice changes is marked pending and detached
+    from cached audio so regeneration can happen safely.
+    """
     settings = manifest.get("settings", {})
     narrator_voice = str(settings.get("narrator_voice", "en-US-GuyNeural") or "en-US-GuyNeural")
     dialogue_voice = str(settings.get("dialogue_voice", "en-US-JennyNeural") or "en-US-JennyNeural")
@@ -1961,17 +1836,25 @@ MOBILE_CSS = """
               radial-gradient(circle at 80% 10%, rgba(14, 165, 233, 0.12), transparent 35%),
               #0b1020;
 }
+body {
+  padding: max(0px, env(safe-area-inset-top))
+           max(0px, env(safe-area-inset-right))
+           max(12px, env(safe-area-inset-bottom))
+           max(0px, env(safe-area-inset-left));
+}
 .gr-button {min-height: 48px !important; font-size: 1rem !important; border-radius: 12px !important;}
 input, textarea, select {font-size: 16px !important;}
 .easy-action-btn button {
-  min-height: 56px !important;
-  font-size: 1.08rem !important;
+  min-height: 60px !important;
+  font-size: 1.1rem !important;
   font-weight: 700 !important;
 }
 .bottom-mobile-nav {
-  position: sticky;
-  bottom: 10px;
-  z-index: 30;
+  position: fixed;
+  left: 10px;
+  right: 10px;
+  bottom: calc(8px + env(safe-area-inset-bottom));
+  z-index: 40;
   padding: 8px;
   border-radius: 14px;
   background: rgba(15, 23, 42, 0.85);
@@ -1980,16 +1863,31 @@ input, textarea, select {font-size: 16px !important;}
 }
 .bottom-mobile-nav .nav-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
 }
 .bottom-mobile-nav button {
   border-radius: 10px;
   border: 1px solid rgba(148, 163, 184, 0.2);
-  padding: 8px 6px;
-  font-size: 12px;
+  min-height: 48px;
+  padding: 10px 8px;
+  font-size: 13px;
   background: rgba(30, 41, 59, 0.75);
   color: #e2e8f0;
+  position: relative;
+  overflow: hidden;
+}
+.bottom-mobile-nav button:active::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.5);
+  transform: translate(-50%, -50%);
+  animation: abm-ripple 0.55s ease-out forwards;
 }
 .glass-card {
   backdrop-filter: blur(10px);
@@ -1998,12 +1896,22 @@ input, textarea, select {font-size: 16px !important;}
   border-radius: 16px !important;
   box-shadow: 0 10px 30px rgba(2, 6, 23, 0.35) !important;
 }
+@keyframes abm-ripple {
+  to {
+    width: 260px;
+    height: 260px;
+    opacity: 0;
+  }
+}
 @media (max-width: 768px) {
-  .gradio-container {padding: 10px !important;}
+  .gradio-container {
+    padding: 10px !important;
+    padding-bottom: calc(96px + env(safe-area-inset-bottom)) !important;
+  }
   .gr-row {flex-direction: column !important; gap: 10px !important;}
   .gr-button {width: 100% !important;}
   .bottom-mobile-nav .nav-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 """
@@ -2050,6 +1958,12 @@ def build_ui():
         draft_saved_state = gr.State("")
 
         with gr.Sidebar(open=True):
+            ui_mode_toggle = gr.Radio(
+                ["Easy (recommended on phone)", "Advanced (full controls)"],
+                value="Easy (recommended on phone)",
+                label="Interface Mode",
+            )
+            ui_mode_hint = gr.Markdown("Using **Easy Mode**. Start in the Easy Mobile tab with one large Generate button.")
             gr.Markdown("## My Projects")
             gr.Markdown("Load saved manifests from local disk or cloud backups.")
             project_selector = gr.Dropdown(label="Saved Projects", choices=[], value=None)
@@ -2057,21 +1971,21 @@ def build_ui():
             with gr.Row():
                 refresh_projects_btn = gr.Button("Refresh", variant="secondary")
                 load_project_btn = gr.Button("Load", variant="primary")
-            resume_last_btn = gr.Button("Resume Last Project", variant="primary")
+            resume_last_btn = gr.Button("Resume Last Project", variant="primary", elem_id="resume-last-btn")
             open_output_btn = gr.Button("Open Output", variant="secondary")
             delete_project_btn = gr.Button("Delete Selected", variant="stop")
             project_action_status = gr.Markdown("")
 
         with gr.Tab("Easy Mobile Mode"):
             gr.Markdown("### One-tap audiobook mode (phone-friendly)")
+            gr.Markdown("Paste text below, then tap **Create Audiobook**. Use *Show advanced options* only if needed.")
             gr.HTML(
                 """
                 <div class="bottom-mobile-nav">
                   <div class="nav-grid">
-                    <button type="button" onclick="window.__abmSwitchTab?.('Easy Mobile Mode')">Easy</button>
-                    <button type="button" onclick="window.__abmSwitchTab?.('Input (Advanced)')">Input</button>
-                    <button type="button" onclick="window.__abmSwitchTab?.('Voices')">Voices</button>
-                    <button type="button" onclick="window.__abmSwitchTab?.('Generate')">Generate</button>
+                    <button type="button" onclick="document.querySelector('#quick-generate-btn button')?.click()">Generate</button>
+                    <button type="button" onclick="document.querySelector('#resume-last-btn button')?.click()">Resume</button>
+                    <button type="button" onclick="window.__abmSwitchTab?.('System')">Settings</button>
                     <button type="button" onclick="window.__abmSwitchTab?.('Player')">Player</button>
                   </div>
                 </div>
@@ -2084,23 +1998,29 @@ def build_ui():
                 </script>
                 """
             )
-            quick_input_mode = gr.Radio(["File", "URL", "Paste Text"], value="Paste Text", label="Input mode")
-            quick_file_input = gr.File(
-                label="Drag & drop book file (EPUB/PDF/TXT)",
-                file_types=[".epub", ".pdf", ".txt"],
-                visible=False,
-            )
-            quick_url_input = gr.Textbox(label="Book/article URL", placeholder="https://...", visible=False)
             quick_text_input = gr.Textbox(
-                label="Paste text",
-                lines=10,
-                placeholder="Paste chapter text and tap Generate.",
+                label="Text input",
+                lines=15,
+                placeholder="Paste your story/article/book text here, then tap Create Audiobook.",
                 visible=True,
             )
-            with gr.Row():
-                quick_output_format = gr.Radio(["MP3", "M4B"], value="MP3", label="Format")
-                quick_free_cloud = gr.Checkbox(label="Save progress to free cloud memory", value=True)
-            quick_generate_btn = gr.Button("Parse → Generate → Assemble → Download", variant="primary", elem_classes=["easy-action-btn"])
+            with gr.Accordion("Show advanced options", open=False):
+                quick_input_mode = gr.Radio(["File", "URL", "Paste Text"], value="Paste Text", label="Input mode")
+                quick_file_input = gr.File(
+                    label="Upload book file (EPUB/PDF/TXT)",
+                    file_types=[".epub", ".pdf", ".txt"],
+                    visible=False,
+                )
+                quick_url_input = gr.Textbox(label="Book/article URL", placeholder="https://...", visible=False)
+                with gr.Row():
+                    quick_output_format = gr.Radio(["MP3", "M4B"], value="MP3", label="Format")
+                    quick_free_cloud = gr.Checkbox(label="Save progress to free cloud memory", value=True)
+            quick_generate_btn = gr.Button(
+                "Create Audiobook",
+                variant="primary",
+                elem_classes=["easy-action-btn"],
+                elem_id="quick-generate-btn",
+            )
             quick_cancel_btn = gr.Button("Cancel", variant="stop", elem_classes=["easy-action-btn"])
             quick_state_badge = gr.Markdown(runtime_state_badge("idle", "Ready"))
             quick_status = gr.Markdown("")
@@ -2223,6 +2143,7 @@ def build_ui():
 
         def on_restore_ui_draft():
             draft = load_ui_draft()
+            ui_mode = str(draft.get("ui_mode", "Easy (recommended on phone)") or "Easy (recommended on phone)")
             adv_mode = str(draft.get("adv_input_mode", "File") or "File")
             adv_dialogue_strategy = dialogue_strategy_value_to_label(str(draft.get("adv_dialogue_strategy", DEFAULT_DIALOGUE_STRATEGY) or DEFAULT_DIALOGUE_STRATEGY))
             quick_mode = str(draft.get("quick_input_mode", "Paste Text") or "Paste Text")
@@ -2231,6 +2152,7 @@ def build_ui():
             adv_msg = f"Remembered file: `{adv_file_path}`" if adv_file_path else ""
             quick_msg = f"Remembered file: `{quick_file_path}`" if quick_file_path else ""
             return (
+                gr.Radio(value=ui_mode),
                 gr.Radio(value=adv_mode),
                 gr.Textbox(value=str(draft.get("adv_url", "") or "")),
                 gr.Textbox(value=str(draft.get("adv_text", "") or "")),
@@ -2248,6 +2170,7 @@ def build_ui():
             )
 
         def on_save_ui_draft(
+            ui_mode: str,
             adv_mode: str,
             adv_url: str,
             adv_text: str,
@@ -2262,6 +2185,7 @@ def build_ui():
             remembered_quick_file: str,
         ):
             draft = load_ui_draft()
+            draft["ui_mode"] = ui_mode
             draft["adv_input_mode"] = adv_mode
             draft["adv_url"] = adv_url
             draft["adv_text"] = adv_text
@@ -2276,6 +2200,13 @@ def build_ui():
             draft["quick_file_path"] = existing_path_or_empty(remembered_quick_file)
             save_ui_draft(draft)
             return now_iso()
+
+        def on_ui_mode_change(mode_label: str):
+            if "advanced" in (mode_label or "").lower():
+                return (
+                    "Using **Advanced Mode**. Full controls are available across Input, Voices, Generate, and System tabs."
+                )
+            return "Using **Easy Mode**. Stay in Easy Mobile tab for the fastest one-button flow."
 
         def on_adv_file_upload(file_obj: Any):
             remembered = copy_uploaded_input(file_obj, "advanced")
@@ -2586,6 +2517,7 @@ def build_ui():
                     gr.Textbox(value=cloud_url_effective),
                 )
             except Exception as exc:
+                logger.exception("Parse UI action failed")
                 return (
                     format_runtime_error("Parse failed", exc),
                     "_No data yet._",
@@ -2721,12 +2653,12 @@ def build_ui():
                     remaining = max(0, total - done)
                     eta = (remaining / rate) if rate > 0 else 0.0
                     rich_desc = (
-                        f"Segment {done}/{total} · ETA {format_eta(eta)}"
+                        f"⏳ {done}/{total} · ETA {format_eta(eta)} · Generating chapter audio"
                         + (f" · {desc}" if desc else "")
                     )
                     progress(ratio, desc=rich_desc)
 
-                progress(0, desc="Generating segment audio")
+                progress(0, desc="🎙️ Preparing generation queue")
                 manifest = run_coro_sync(
                     stage_generate(
                         manifest=manifest,
@@ -2753,7 +2685,7 @@ def build_ui():
                         runtime_state_badge("cancelled", "Generation cancelled"),
                     )
 
-                progress(0.92, desc="Assembling final audiobook")
+                progress(0.92, desc="📦 Assembling final audiobook")
                 output_path = stage_assemble(
                     manifest=manifest,
                     output_format=settings["output_format"],
@@ -2761,7 +2693,7 @@ def build_ui():
                     manifest_path=manifest_path,
                     cancel_event=cancel_event,
                 )
-                progress(1.0, desc="Done")
+                progress(1.0, desc="✅ Audiobook ready")
                 if settings.get("enable_free_cloud_memory"):
                     try:
                         cloud_link = upload_manifest_to_free_cloud(manifest)
@@ -2800,6 +2732,7 @@ def build_ui():
             except Exception as exc:
                 if "manifest" in locals():
                     update_run_state(manifest, "failed", f"Generation failed: {exc}", manifest_path)
+                logger.exception("Generate UI action failed")
                 return (
                     format_runtime_error("Generation failed", exc),
                     "_No data yet._",
@@ -2970,7 +2903,7 @@ def build_ui():
                     "free_cloud_manifest_url": "",
                     "tts_min_request_interval_s": DEFAULT_TTS_MIN_REQUEST_INTERVAL_S,
                 }
-                progress(0.01, desc="Parsing source")
+                progress(0.01, desc="📖 Parsing source")
                 run_started = time.time()
                 manifest, manifest_path = stage_parse(
                     input_path=input_path,
@@ -2987,9 +2920,9 @@ def build_ui():
                     remaining = max(0, total - done)
                     eta = (remaining / rate) if rate > 0 else 0.0
                     ratio = 0.05 + ((done / total) * 0.8 if total else 0.8)
-                    progress(min(ratio, 0.9), desc=f"Segment {done}/{total} · ETA {format_eta(eta)} · {desc}")
+                    progress(min(ratio, 0.9), desc=f"⏳ {done}/{total} · ETA {format_eta(eta)} · {desc}")
 
-                progress(0.05, desc="Generating audio")
+                progress(0.05, desc="🎵 Generating chapter audio")
                 manifest = run_coro_sync(
                     stage_generate(
                         manifest=manifest,
@@ -3008,7 +2941,7 @@ def build_ui():
                         "",
                     )
                 if manifest_has_generation_errors(manifest):
-                    progress(0.55, desc="Retrying with offline engine")
+                    progress(0.55, desc="🔁 Cloud voice failed, retrying with offline voice")
                     fallback_settings = manifest.get("settings", {})
                     fallback_settings["tts_engine"] = "kokoro"
                     fallback_settings["narrator_voice"] = "af_sarah"
@@ -3038,7 +2971,7 @@ def build_ui():
                     if manifest_has_generation_errors(manifest):
                         raise RuntimeError("Generation failed with both edge-tts and kokoro fallback.")
 
-                progress(0.92, desc="Assembling audiobook")
+                progress(0.92, desc="📦 Assembling audiobook")
                 output_path = stage_assemble(
                     manifest=manifest,
                     output_format=output_mode,
@@ -3062,7 +2995,7 @@ def build_ui():
                     manifest_path=manifest_path,
                     cloud_url=cloud_url,
                 )
-                progress(1.0, desc="Done")
+                progress(1.0, desc="✅ Audiobook ready")
                 cloud_line = f"\nCloud memory URL: `{cloud_url}`" if cloud_url else ""
                 elapsed_total = max(0.0, time.time() - run_started)
                 total_segments = int(manifest.get("progress", {}).get("total_segments", 0))
@@ -3085,6 +3018,7 @@ def build_ui():
                     cloud_url,
                 )
             except Exception as exc:
+                logger.exception("Quick generate UI action failed")
                 return (
                     format_runtime_error("Quick mode failed", exc),
                     runtime_state_badge("failed", "Quick flow failed"),
@@ -3121,6 +3055,7 @@ def build_ui():
             on_restore_ui_draft,
             inputs=[],
             outputs=[
+                ui_mode_toggle,
                 input_mode,
                 url_input,
                 text_input,
@@ -3137,6 +3072,7 @@ def build_ui():
                 quick_draft_restore_md,
             ],
         )
+        restore_draft_evt.then(on_ui_mode_change, inputs=[ui_mode_toggle], outputs=[ui_mode_hint])
         restore_draft_evt.then(on_input_mode_change, inputs=[input_mode], outputs=[file_input, url_input, text_input])
         restore_draft_evt.then(
             on_input_mode_change,
@@ -3217,6 +3153,7 @@ def build_ui():
             inputs=[quick_input_mode],
             outputs=[quick_file_input, quick_url_input, quick_text_input],
         )
+        ui_mode_toggle.change(on_ui_mode_change, inputs=[ui_mode_toggle], outputs=[ui_mode_hint])
         narrator_preview.click(
             on_preview,
             inputs=[engine_select, narrator_voice],
@@ -3301,6 +3238,7 @@ def build_ui():
             outputs=[quick_status, quick_state_badge, quick_chapter_preview_md, quick_player, quick_download, quick_cloud_url],
         )
         for component in [
+            ui_mode_toggle,
             input_mode,
             url_input,
             text_input,
@@ -3315,6 +3253,7 @@ def build_ui():
             component.change(
                 on_save_ui_draft,
                 inputs=[
+                    ui_mode_toggle,
                     input_mode,
                     url_input,
                     text_input,
