@@ -24,15 +24,15 @@
       };
     </script>
   </head>
-  <body class="bg-slate-50 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100">
+  <body class="bg-slate-50 text-slate-900 transition-colors duration-300 dark:bg-slate-950 dark:text-slate-100">
     <div
       id="install-banner"
       class="fixed inset-x-3 top-3 z-50 hidden rounded-2xl border border-indigo-300/40 bg-indigo-50/95 p-3 text-sm shadow-xl backdrop-blur dark:border-indigo-500/40 dark:bg-slate-900/95"
     >
       <div class="flex items-center justify-between gap-3">
-        <p>Install Audiobook Maker Launcher for one-tap access.</p>
+        <p>Install Audiobook Maker Launcher for one-tap access and offline launcher caching.</p>
         <div class="flex items-center gap-2">
-          <button id="install-now" class="rounded-lg bg-brand-600 px-3 py-1.5 text-white">Install</button>
+          <button id="install-now" class="rounded-lg bg-brand-600 px-4 py-2 text-white">Install</button>
           <button id="install-dismiss" class="rounded-lg border border-slate-300 px-3 py-1.5 dark:border-slate-700">Later</button>
         </div>
       </div>
@@ -77,9 +77,9 @@
             Modern Gradio pipeline for creating chaptered audiobooks with resume support, character voices, and cloud backup.
           </p>
           <div class="mt-6 flex flex-wrap gap-3">
-            <a href="#quickstart" class="rounded-xl bg-brand-600 px-4 py-2 font-semibold text-white hover:bg-brand-500">Quick Start</a>
-            <a href="/api/launch" class="rounded-xl border border-slate-300 px-4 py-2 font-semibold dark:border-slate-700">/api/launch</a>
-            <button id="share-btn" class="rounded-xl border border-slate-300 px-4 py-2 font-semibold dark:border-slate-700">Share</button>
+            <a href="#quickstart" class="w-full rounded-xl bg-brand-600 px-4 py-3 text-center font-semibold text-white hover:bg-brand-500 sm:w-auto">Quick Start</a>
+            <a href="/api/launch" class="w-full rounded-xl border border-slate-300 px-4 py-3 text-center font-semibold dark:border-slate-700 sm:w-auto">/api/launch</a>
+            <button id="share-btn" class="w-full rounded-xl border border-slate-300 px-4 py-3 font-semibold dark:border-slate-700 sm:w-auto">Share</button>
           </div>
           <p class="mt-4 text-sm text-slate-500 dark:text-slate-400">Try on Hugging Face (soon)</p>
         </div>
@@ -122,6 +122,73 @@
         </div>
       </section>
 
+      <section class="mt-10 grid gap-4 lg:grid-cols-2">
+        <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <h3 class="text-xl font-bold">Quick Demo</h3>
+          <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            Hear the difference between plain and dialogue-aware output. Add your own audio clips to
+            <code>/assets/demo-before.mp3</code> and <code>/assets/demo-after.mp3</code> for side-by-side playback.
+          </p>
+          <div class="mt-4 grid gap-3 sm:grid-cols-2">
+            <div class="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+              <p class="text-sm font-semibold">Before (single voice)</p>
+              <audio controls class="mt-2 w-full">
+                <source src="/assets/demo-before.mp3" type="audio/mpeg" />
+              </audio>
+            </div>
+            <div class="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+              <p class="text-sm font-semibold">After (dialogue-aware)</p>
+              <audio controls class="mt-2 w-full">
+                <source src="/assets/demo-after.mp3" type="audio/mpeg" />
+              </audio>
+            </div>
+          </div>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <h3 class="text-xl font-bold">Processing Time Estimator</h3>
+          <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Estimate generation time before you run a long job.</p>
+          <div class="mt-4 grid gap-3 sm:grid-cols-3">
+            <label class="text-sm">
+              Pages
+              <input id="calc-pages" type="number" min="1" value="20" class="mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-slate-700" />
+            </label>
+            <label class="text-sm">
+              Words / page
+              <input id="calc-words" type="number" min="120" value="280" class="mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-slate-700" />
+            </label>
+            <label class="text-sm">
+              Engine
+              <select id="calc-engine" class="mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-slate-700">
+                <option value="edge">edge-tts (cloud)</option>
+                <option value="kokoro">kokoro (offline)</option>
+              </select>
+            </label>
+          </div>
+          <p id="time-calc-result" class="mt-3 rounded-xl bg-slate-100 px-3 py-2 text-sm dark:bg-slate-950">Estimated generation: --</p>
+        </article>
+      </section>
+
+      <section class="mt-10 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+        <h3 class="text-xl font-bold">Easy vs Advanced Mode</h3>
+        <div class="mt-4 overflow-x-auto">
+          <table class="min-w-full text-left text-sm">
+            <thead>
+              <tr class="border-b border-slate-200 dark:border-slate-700">
+                <th class="px-3 py-2">Capability</th>
+                <th class="px-3 py-2">Easy Mobile Mode</th>
+                <th class="px-3 py-2">Advanced Mode</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="border-b border-slate-100 dark:border-slate-800"><td class="px-3 py-2">One-tap flow</td><td class="px-3 py-2">Yes</td><td class="px-3 py-2">Manual stages</td></tr>
+              <tr class="border-b border-slate-100 dark:border-slate-800"><td class="px-3 py-2">Character voice mapping</td><td class="px-3 py-2">Auto defaults</td><td class="px-3 py-2">Full control</td></tr>
+              <tr class="border-b border-slate-100 dark:border-slate-800"><td class="px-3 py-2">Output options</td><td class="px-3 py-2">MP3/M4B quick select</td><td class="px-3 py-2">All options + music</td></tr>
+              <tr><td class="px-3 py-2">Best for</td><td class="px-3 py-2">Phone users, speed</td><td class="px-3 py-2">Power users, deep tuning</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <section id="quickstart" class="mt-10">
         <h3 class="text-2xl font-bold">Quick Start</h3>
         <div class="mt-4 grid gap-4 md:grid-cols-2">
@@ -152,7 +219,7 @@
         </div>
       </section>
 
-      <section class="mt-10 grid gap-4 lg:grid-cols-2">
+      <section class="mt-10 grid gap-4 lg:grid-cols-3">
         <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
           <h3 class="text-xl font-bold">Phone Workflow</h3>
           <div class="mt-4 rounded-3xl border border-slate-300 bg-slate-100 p-4 dark:border-slate-700 dark:bg-slate-950">
@@ -172,6 +239,45 @@
           <pre id="api-output" class="mt-3 max-h-64 overflow-auto rounded-xl bg-slate-100 p-3 text-xs dark:bg-slate-950"><code>Loading...</code></pre>
           <p id="pwa-status" class="mt-2 text-xs text-slate-500 dark:text-slate-400">Checking launcher status...</p>
         </article>
+        <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <h3 class="text-xl font-bold">Install on Mobile (PWA)</h3>
+          <div class="mt-3 space-y-3 text-sm">
+            <div>
+              <p class="font-semibold">Android (Chrome)</p>
+              <ol class="mt-1 list-decimal space-y-1 pl-5 text-slate-600 dark:text-slate-300">
+                <li>Open this page in Chrome.</li>
+                <li>Tap the install banner or browser menu.</li>
+                <li>Choose <span class="font-semibold">Install app</span>.</li>
+              </ol>
+            </div>
+            <div>
+              <p class="font-semibold">iPhone / iPad (Safari)</p>
+              <ol class="mt-1 list-decimal space-y-1 pl-5 text-slate-600 dark:text-slate-300">
+                <li>Tap the Share icon in Safari.</li>
+                <li>Select <span class="font-semibold">Add to Home Screen</span>.</li>
+                <li>Launch from your home screen for app-like mode.</li>
+              </ol>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="mt-10 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+        <h3 class="text-xl font-bold">FAQ</h3>
+        <div class="mt-4 space-y-3 text-sm">
+          <details class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            <summary class="cursor-pointer font-semibold">Does this run in a mobile browser without installing?</summary>
+            <p class="mt-2 text-slate-600 dark:text-slate-300">Yes. Install is optional; PWA mode just adds faster launching and better offline launcher caching.</p>
+          </details>
+          <details class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            <summary class="cursor-pointer font-semibold">Why did my large PDF fail?</summary>
+            <p class="mt-2 text-slate-600 dark:text-slate-300">Very large PDFs can exhaust memory/time limits. Split files into smaller chunks when possible.</p>
+          </details>
+          <details class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            <summary class="cursor-pointer font-semibold">Can I resume later on another device?</summary>
+            <p class="mt-2 text-slate-600 dark:text-slate-300">Yes. Enable free cloud memory backup and keep the generated JSONBlob URL for restore.</p>
+          </details>
+        </div>
       </section>
     </main>
 
@@ -180,9 +286,13 @@
       const installBanner = document.getElementById("install-banner");
       const installNow = document.getElementById("install-now");
       const installDismiss = document.getElementById("install-dismiss");
+      const statusNode = document.getElementById("pwa-status");
 
       const preferredTheme = localStorage.getItem("abm-theme");
-      if (preferredTheme === "light") document.documentElement.classList.remove("dark");
+      const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      if (preferredTheme === "light" || (!preferredTheme && !prefersDark)) {
+        document.documentElement.classList.remove("dark");
+      }
       document.getElementById("theme-toggle").addEventListener("click", () => {
         const html = document.documentElement;
         html.classList.toggle("dark");
@@ -220,16 +330,46 @@
         } catch (_err) {}
       });
 
+      const calcPages = document.getElementById("calc-pages");
+      const calcWords = document.getElementById("calc-words");
+      const calcEngine = document.getElementById("calc-engine");
+      const calcResult = document.getElementById("time-calc-result");
+      const updateEstimate = () => {
+        const pages = Math.max(1, Number(calcPages.value) || 1);
+        const wordsPerPage = Math.max(120, Number(calcWords.value) || 120);
+        const chars = pages * wordsPerPage * 5;
+        const cps = calcEngine.value === "edge" ? 28 : 16;
+        const totalSec = Math.round(chars / cps);
+        const min = Math.floor(totalSec / 60);
+        const sec = totalSec % 60;
+        calcResult.textContent = `Estimated generation: ~${min}m ${sec}s (${calcEngine.value === "edge" ? "edge-tts" : "kokoro"})`;
+      };
+      for (const el of [calcPages, calcWords, calcEngine]) {
+        el.addEventListener("input", updateEstimate);
+      }
+      updateEstimate();
+
+      const ua = (navigator.userAgent || "").toLowerCase();
+      const isiOS = /iphone|ipad|ipod/.test(ua);
+      const isStandalone =
+        (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+        window.navigator.standalone === true;
+      if (isiOS && !isStandalone) {
+        installBanner.classList.remove("hidden");
+        installNow.classList.add("hidden");
+      }
+
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker
           .register("/service-worker.js")
-          .then(() => (document.getElementById("pwa-status").textContent = "Offline cache enabled."))
-          .catch(() => (document.getElementById("pwa-status").textContent = "Service worker registration failed."));
+          .then(() => (statusNode.textContent = "Offline cache enabled."))
+          .catch(() => (statusNode.textContent = "Service worker registration failed."));
       }
 
       window.addEventListener("beforeinstallprompt", (event) => {
         event.preventDefault();
         installPromptEvent = event;
+        installNow.classList.remove("hidden");
         installBanner.classList.remove("hidden");
       });
       installNow.addEventListener("click", async () => {
@@ -252,7 +392,7 @@
         .then((res) => res.json())
         .then((data) => {
           if (data && data.status === "ok") {
-            document.getElementById("pwa-status").textContent += " API healthy.";
+            statusNode.textContent += " API healthy.";
           }
         })
         .catch(() => {});

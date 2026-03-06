@@ -1,16 +1,28 @@
 {
   "name": "Audiobook Maker Launcher",
   "short_name": "Audiobook",
+  "description": "Mobile-friendly launcher for the Audiobook Maker V7 pipeline.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "browser"],
+  "orientation": "portrait-primary",
   "background_color": "#111827",
   "theme_color": "#111827",
+  "categories": ["productivity", "utilities", "books"],
   "icons": [
     {
       "src": "/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Quick Start",
+      "short_name": "Quick Start",
+      "url": "/#quickstart"
     }
   ]
 }
