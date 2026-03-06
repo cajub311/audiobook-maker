@@ -29,6 +29,15 @@ PATTERN_MID = re.compile(
     re.MULTILINE,
 )
 
+QUOTE_STYLE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("double", re.compile(r'"(.+?)"', re.DOTALL)),
+    ("curly", re.compile(r"“(.+?)”", re.DOTALL)),
+    ("guillemet", re.compile(r"«(.+?)»", re.DOTALL)),
+    ("german", re.compile(r"„(.+?)“", re.DOTALL)),
+    ("cjk_corner", re.compile(r"「(.+?)」", re.DOTALL)),
+    ("cjk_double_corner", re.compile(r"『(.+?)』", re.DOTALL)),
+]
+
 
 def normalize_dialogue_strategy(value: str) -> str:
     low = (value or "").strip().lower()
@@ -63,6 +72,7 @@ def extract_dialogue_regex(text: str) -> list[dict[str, Any]]:
                 "dialogue": match.group(1).strip(),
                 "speaker": match.group(2).strip(),
                 "method": "regex",
+                "confidence": 0.95,
             }
         )
     for match in PATTERN_PRE.finditer(text):
@@ -73,6 +83,7 @@ def extract_dialogue_regex(text: str) -> list[dict[str, Any]]:
                 "dialogue": match.group(3).strip(),
                 "speaker": match.group(1).strip(),
                 "method": "regex",
+                "confidence": 0.95,
             }
         )
     for match in PATTERN_MID.finditer(text):
@@ -86,25 +97,28 @@ def extract_dialogue_regex(text: str) -> list[dict[str, Any]]:
                 "dialogue": f"{first} ... {second}",
                 "speaker": speaker,
                 "method": "regex",
+                "confidence": 0.95,
             }
         )
     return deduplicate_by_position(results)
 
 
 def find_all_quotes(text: str) -> list[dict[str, Any]]:
-    quote_pattern = re.compile(r'["\u201C](.+?)["\u201D]', re.DOTALL)
-    quotes = []
-    for match in quote_pattern.finditer(text):
-        quotes.append(
-            {
-                "start": match.start(),
-                "end": match.end(),
-                "dialogue": match.group(1).strip(),
-                "speaker": None,
-                "method": "quote",
-            }
-        )
-    return quotes
+    quotes: list[dict[str, Any]] = []
+    for quote_style, pattern in QUOTE_STYLE_PATTERNS:
+        for match in pattern.finditer(text):
+            quotes.append(
+                {
+                    "start": match.start(),
+                    "end": match.end(),
+                    "dialogue": match.group(1).strip(),
+                    "speaker": None,
+                    "method": "quote",
+                    "quote_style": quote_style,
+                    "confidence": 0.35,
+                }
+            )
+    return deduplicate_by_position(quotes)
 
 
 class SpacyAttributor:
@@ -170,6 +184,7 @@ def detect_all_dialogue(chapter_text: str) -> list[dict[str, Any]]:
             if not (q["end"] <= r["start"] or q["start"] >= r["end"]):
                 q["speaker"] = r.get("speaker")
                 q["method"] = "regex"
+                q["confidence"] = 0.95
                 break
         if q.get("speaker"):
             tracker.record(str(q["speaker"]))
@@ -178,16 +193,19 @@ def detect_all_dialogue(chapter_text: str) -> list[dict[str, Any]]:
         if spacy_speaker:
             q["speaker"] = spacy_speaker
             q["method"] = "spacy"
+            q["confidence"] = 0.7
             tracker.record(spacy_speaker)
             continue
         predicted = tracker.predict_next()
         if predicted:
             q["speaker"] = predicted
             q["method"] = "alternation"
+            q["confidence"] = 0.55
             tracker.record(predicted)
         else:
             q["speaker"] = None
             q["method"] = "unattributed"
+            q["confidence"] = 0.2
 
     return quotes
 

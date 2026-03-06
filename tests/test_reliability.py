@@ -122,6 +122,20 @@ class ReliabilityTests(unittest.TestCase):
         self.assertTrue(found)
         self.assertIsNone(found[0].get("speaker"))
 
+    def test_dialogue_quotes_detect_multilingual_marks(self):
+        text = "«Bonjour tout le monde» she wrote."
+        found = detect_dialogue_with_strategy(text, "quotes_only")
+        self.assertTrue(found)
+        self.assertEqual(found[0].get("quote_style"), "guillemet")
+
+    def test_dialogue_confidence_present(self):
+        text = '"Hello there," Alice said.'
+        found = detect_all_dialogue(text)
+        self.assertTrue(found)
+        confidence = float(found[0].get("confidence", 0.0))
+        self.assertGreater(confidence, 0.0)
+        self.assertLessEqual(confidence, 1.0)
+
     def test_tts_engine_factory(self):
         edge = create_tts_engine("edge-tts")
         kokoro = create_tts_engine("kokoro")
