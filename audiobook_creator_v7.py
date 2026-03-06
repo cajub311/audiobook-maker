@@ -2511,7 +2511,7 @@ def build_ui():
             project_action_status = gr.Markdown("")
 
         with gr.Tab("Easy Mobile Mode"):
-            gr.Markdown("### One-tap audiobook mode (phone-friendly)")
+            gr.Markdown("### 📱 Simple Audiobook Creation\nOne-tap workflow: Paste → Generate → Download")
             gr.HTML(
                 """
                 <div class="bottom-mobile-nav">
@@ -2532,31 +2532,49 @@ def build_ui():
                 </script>
                 """
             )
-            quick_input_mode = gr.Radio(["File", "URL", "Paste Text"], value="Paste Text", label="Input mode")
+
+            # Main input area - large and prominent
+            quick_text_input = gr.Textbox(
+                label="📝 Paste your text here",
+                lines=15,
+                placeholder="Paste chapter text, article, or book excerpt...\n\nOr switch to File/URL mode below",
+                visible=True,
+            )
+
+            # Progressive disclosure: Input mode selector
+            with gr.Group():
+                gr.Markdown("**Want to use a file or URL instead?**")
+                quick_input_mode = gr.Radio(["Text (Recommended)", "File", "URL"], value="Text (Recommended)", label="Input mode")
+
             quick_file_input = gr.File(
-                label="Drag & drop book file (EPUB/PDF/TXT)",
+                label="📁 Drag & drop book file (EPUB/PDF/TXT)",
                 file_types=[".epub", ".pdf", ".txt"],
                 visible=False,
             )
-            quick_url_input = gr.Textbox(label="Book/article URL", placeholder="https://...", visible=False)
-            quick_text_input = gr.Textbox(
-                label="Paste text",
-                lines=10,
-                placeholder="Paste chapter text and tap Generate.",
-                visible=True,
-            )
-            with gr.Row():
-                quick_output_format = gr.Radio(["MP3", "M4B"], value="MP3", label="Format")
-                quick_free_cloud = gr.Checkbox(label="Save progress to free cloud memory", value=True)
-            quick_generate_btn = gr.Button("Parse → Generate → Assemble → Download", variant="primary", elem_classes=["easy-action-btn"])
-            quick_cancel_btn = gr.Button("Cancel", variant="stop", elem_classes=["easy-action-btn"])
+            quick_url_input = gr.Textbox(label="🔗 Book/article URL", placeholder="https://...", visible=False)
+
+            # Simple format choice (hidden in advanced)
+            quick_output_format = gr.Radio(["MP3 (recommended)", "M4B (with chapters)"], value="MP3 (recommended)", label="Output format")
+
+            # Main action button
+            quick_generate_btn = gr.Button("⚡ Generate Audiobook", variant="primary", elem_classes=["easy-action-btn"], scale=2)
+            quick_cancel_btn = gr.Button("Cancel", variant="stop", elem_classes=["easy-action-btn"], scale=1)
+
+            # Status display
             quick_state_badge = gr.Markdown(runtime_state_badge("idle", "Ready"))
             quick_status = gr.Markdown("")
             quick_draft_restore_md = gr.Markdown("")
             quick_chapter_preview_md = gr.Markdown("_No chapter preview yet._")
-            quick_player = gr.Audio(label="Audiobook", type="filepath")
-            quick_download = gr.File(label="Download")
-            quick_cloud_url = gr.Textbox(label="Cloud memory URL", interactive=False)
+
+            # Results
+            quick_player = gr.Audio(label="🎵 Listen to your audiobook", type="filepath")
+            quick_download = gr.File(label="⬇️ Download")
+
+            # Advanced options (hidden by default)
+            with gr.Accordion("🔧 Advanced options (optional)", open=False):
+                gr.Markdown("Only adjust these if you have special needs.")
+                quick_free_cloud = gr.Checkbox(label="☁️ Save project to free cloud memory", value=True)
+                quick_cloud_url = gr.Textbox(label="Cloud memory URL", interactive=False)
 
         with gr.Tab("Input (Advanced)"):
             input_mode = gr.Radio(["File", "URL", "Paste Text"], value="File", label="Input mode")
