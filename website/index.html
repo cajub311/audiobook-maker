@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0f172a" />
+    <meta name="color-scheme" content="dark light" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <title>Audiobook Maker V7 - Launcher</title>
@@ -32,8 +33,8 @@
       <div class="flex items-center justify-between gap-3">
         <p>Install Audiobook Maker Launcher for one-tap access.</p>
         <div class="flex items-center gap-2">
-          <button id="install-now" class="rounded-lg bg-brand-600 px-3 py-1.5 text-white">Install</button>
-          <button id="install-dismiss" class="rounded-lg border border-slate-300 px-3 py-1.5 dark:border-slate-700">Later</button>
+          <button id="install-now" class="min-h-[44px] min-w-[44px] rounded-lg bg-brand-600 px-4 py-2 text-white">Install</button>
+          <button id="install-dismiss" class="min-h-[44px] min-w-[44px] rounded-lg border border-slate-300 px-4 py-2 dark:border-slate-700">Later</button>
         </div>
       </div>
     </div>
@@ -61,7 +62,7 @@
             class="h-6"
           />
           <img alt="Version badge" src="https://img.shields.io/badge/version-v7-indigo" class="h-6" />
-          <button id="theme-toggle" class="rounded-full border border-slate-300 px-3 py-1 text-sm dark:border-slate-700">
+          <button id="theme-toggle" class="min-h-[44px] min-w-[44px] rounded-full border border-slate-300 px-4 py-2 text-sm dark:border-slate-700">
             Toggle theme
           </button>
         </div>
@@ -77,9 +78,9 @@
             Modern Gradio pipeline for creating chaptered audiobooks with resume support, character voices, and cloud backup.
           </p>
           <div class="mt-6 flex flex-wrap gap-3">
-            <a href="#quickstart" class="rounded-xl bg-brand-600 px-4 py-2 font-semibold text-white hover:bg-brand-500">Quick Start</a>
-            <a href="/api/launch" class="rounded-xl border border-slate-300 px-4 py-2 font-semibold dark:border-slate-700">/api/launch</a>
-            <button id="share-btn" class="rounded-xl border border-slate-300 px-4 py-2 font-semibold dark:border-slate-700">Share</button>
+            <a href="#quickstart" class="min-h-[48px] min-w-[44px] rounded-xl bg-brand-600 px-5 py-3 font-semibold text-white hover:bg-brand-500 md:px-4 md:py-2">Quick Start</a>
+            <a href="/api/launch" class="min-h-[48px] min-w-[44px] rounded-xl border border-slate-300 px-5 py-3 font-semibold dark:border-slate-700 md:px-4 md:py-2">/api/launch</a>
+            <button id="share-btn" class="min-h-[48px] min-w-[44px] rounded-xl border border-slate-300 px-5 py-3 font-semibold dark:border-slate-700 md:px-4 md:py-2">Share</button>
           </div>
           <p class="mt-4 text-sm text-slate-500 dark:text-slate-400">Try on Hugging Face (soon)</p>
         </div>
@@ -122,6 +123,59 @@
         </div>
       </section>
 
+      <section id="time-estimate" class="mt-10">
+        <h3 class="text-2xl font-bold">Time Estimate</h3>
+        <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Rough processing time (Edge TTS). ~250 words/page.</p>
+        <div class="mt-4 flex flex-wrap items-end gap-4">
+          <div>
+            <label for="w-est-pages" class="block text-sm font-medium">Pages</label>
+            <input id="w-est-pages" type="number" min="1" max="1000" value="50" class="mt-1 w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900" />
+          </div>
+          <div>
+            <button id="w-est-calc" class="min-h-[44px] rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white">Estimate</button>
+          </div>
+          <p id="w-est-result" class="text-slate-600 dark:text-slate-300">~50 pages ≈ 8–12 min processing</p>
+        </div>
+      </section>
+
+      <section class="mt-10">
+        <h3 class="text-2xl font-bold">Easy vs Advanced Mode</h3>
+        <div class="mt-4 overflow-x-auto">
+          <table class="w-full min-w-[400px] border-collapse rounded-2xl border border-slate-200 dark:border-slate-700">
+            <thead>
+              <tr class="bg-slate-100 dark:bg-slate-800">
+                <th class="border-b border-slate-200 px-4 py-3 text-left dark:border-slate-700">Feature</th>
+                <th class="border-b border-slate-200 px-4 py-3 text-left dark:border-slate-700">Easy Mode</th>
+                <th class="border-b border-slate-200 px-4 py-3 text-left dark:border-slate-700">Advanced Mode</th>
+              </tr>
+            </thead>
+            <tbody class="text-sm">
+              <tr class="border-b border-slate-200 dark:border-slate-700"><td class="px-4 py-2">Workflow</td><td>Paste → Generate → Download</td><td>Parse, Voices, Generate, Player tabs</td></tr>
+              <tr class="border-b border-slate-200 dark:border-slate-700"><td class="px-4 py-2">Voice selection</td><td>Default narrator + dialogue</td><td>Per-character, Voice Browser</td></tr>
+              <tr class="border-b border-slate-200 dark:border-slate-700"><td class="px-4 py-2">Best for</td><td>Quick audiobooks on mobile</td><td>Power users, multi-voice books</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="faq" class="mt-10">
+        <h3 class="text-2xl font-bold">FAQ</h3>
+        <div class="mt-4 space-y-4">
+          <details class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <summary class="cursor-pointer font-semibold">Do I need to install anything?</summary>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Yes. Run <code class="rounded bg-slate-100 px-1 dark:bg-slate-800">pip install -r requirements.txt</code> and <code class="rounded bg-slate-100 px-1 dark:bg-slate-800">python3 audiobook_creator_v7.py</code>.</p>
+          </details>
+          <details class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <summary class="cursor-pointer font-semibold">Which formats are supported?</summary>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">EPUB, PDF, TXT. Also paste text or provide a URL.</p>
+          </details>
+          <details class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <summary class="cursor-pointer font-semibold">Is it free?</summary>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Yes. Edge TTS and Kokoro are free. Cloud backup uses free JSONBlob.</p>
+          </details>
+        </div>
+      </section>
+
       <section id="quickstart" class="mt-10">
         <h3 class="text-2xl font-bold">Quick Start</h3>
         <div class="mt-4 grid gap-4 md:grid-cols-2">
@@ -129,25 +183,25 @@
             <p class="text-xs font-bold uppercase tracking-wide text-indigo-500">Step 1</p>
             <p class="mt-2 font-semibold">Install dependencies</p>
             <pre id="w-cmd-1" class="mt-2 overflow-x-auto rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-950"><code>pip install -r requirements.txt</code></pre>
-            <button data-copy="w-cmd-1" class="copy-btn mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">Copy</button>
+            <button data-copy="w-cmd-1" class="copy-btn mt-2 min-h-[44px] min-w-[44px] rounded-lg border border-slate-300 px-4 py-2 text-sm dark:border-slate-700">Copy</button>
           </article>
           <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
             <p class="text-xs font-bold uppercase tracking-wide text-indigo-500">Step 2</p>
             <p class="mt-2 font-semibold">Run app</p>
             <pre id="w-cmd-2" class="mt-2 overflow-x-auto rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-950"><code>python3 audiobook_creator_v7.py</code></pre>
-            <button data-copy="w-cmd-2" class="copy-btn mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">Copy</button>
+            <button data-copy="w-cmd-2" class="copy-btn mt-2 min-h-[44px] min-w-[44px] rounded-lg border border-slate-300 px-4 py-2 text-sm dark:border-slate-700">Copy</button>
           </article>
           <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
             <p class="text-xs font-bold uppercase tracking-wide text-indigo-500">Step 3</p>
             <p class="mt-2 font-semibold">Optional public share URL</p>
             <pre id="w-cmd-3" class="mt-2 overflow-x-auto rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-950"><code>GRADIO_SHARE=1 python3 audiobook_creator_v7.py</code></pre>
-            <button data-copy="w-cmd-3" class="copy-btn mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">Copy</button>
+            <button data-copy="w-cmd-3" class="copy-btn mt-2 min-h-[44px] min-w-[44px] rounded-lg border border-slate-300 px-4 py-2 text-sm dark:border-slate-700">Copy</button>
           </article>
           <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
             <p class="text-xs font-bold uppercase tracking-wide text-indigo-500">Step 4</p>
             <p class="mt-2 font-semibold">Open in browser</p>
             <pre id="w-cmd-4" class="mt-2 overflow-x-auto rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-950"><code>http://localhost:7860</code></pre>
-            <button data-copy="w-cmd-4" class="copy-btn mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">Copy</button>
+            <button data-copy="w-cmd-4" class="copy-btn mt-2 min-h-[44px] min-w-[44px] rounded-lg border border-slate-300 px-4 py-2 text-sm dark:border-slate-700">Copy</button>
           </article>
         </div>
       </section>
@@ -182,7 +236,9 @@
       const installDismiss = document.getElementById("install-dismiss");
 
       const preferredTheme = localStorage.getItem("abm-theme");
+      const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
       if (preferredTheme === "light") document.documentElement.classList.remove("dark");
+      else if (!preferredTheme && !systemPrefersDark) document.documentElement.classList.remove("dark");
       document.getElementById("theme-toggle").addEventListener("click", () => {
         const html = document.documentElement;
         html.classList.toggle("dark");
@@ -256,6 +312,18 @@
           }
         })
         .catch(() => {});
+
+      document.getElementById("w-est-calc").addEventListener("click", () => {
+        const pages = parseInt(document.getElementById("w-est-pages").value, 10) || 50;
+        const wordsPerPage = 250;
+        const chars = pages * wordsPerPage * 5;
+        const minPer1kChars = 0.6;
+        const estMin = Math.ceil((chars / 1000) * minPer1kChars);
+        const rangeMin = Math.max(1, Math.floor(estMin * 0.8));
+        const rangeMax = Math.ceil(estMin * 1.2);
+        document.getElementById("w-est-result").textContent =
+          `~${pages} pages (${(pages * wordsPerPage).toLocaleString()} words) ≈ ${rangeMin}–${rangeMax} min processing`;
+      });
     </script>
   </body>
 </html>

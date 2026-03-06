@@ -34,28 +34,39 @@ from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-
-APP_VERSION = "7.0"
-CACHE_KEY_SCHEMA_VERSION = 2
-BASE_DIR = Path(__file__).resolve().parent
-CACHE_DIR = BASE_DIR / "tts_cache"
-MANIFESTS_DIR = BASE_DIR / "manifests"
-PRONUNCIATIONS_DIR = BASE_DIR / "pronunciations"
-TEMP_DIR = BASE_DIR / "temp"
-OUTPUT_DIR = BASE_DIR / "output"
-BOOK_PROFILES_DIR = PRONUNCIATIONS_DIR / "book_profiles"
-SAVED_INPUTS_DIR = BASE_DIR / "saved_inputs"
-UI_DRAFT_PATH = BASE_DIR / "ui_draft.json"
-APP_STATE_PATH = BASE_DIR / "app_state.json"
-DEFAULT_FFMPEG_TIMEOUT_S = 240
-DEFAULT_FFMPEG_RETRIES = 2
-MAX_REMOTE_TEXT_BYTES = 2 * 1024 * 1024
-MAX_CLOUD_MANIFEST_BYTES = 1024 * 1024
-USER_AGENT = "AudiobookCreatorV7/1.0 (+mobile-safe-fetch)"
-VOICE_BROWSER_PAGE_SIZE = 12
-PREVIEW_SAMPLE_TEXT = (
-    "This is a ten second voice preview for Audiobook Maker version seven. "
-    "You are hearing the selected voice speaking naturally with clear pacing."
+from config import (
+    APP_STATE_PATH,
+    APP_VERSION,
+    BASE_DIR,
+    BOOK_PROFILES_DIR,
+    CACHE_DIR,
+    CACHE_DEFAULT_MAX_MB,
+    CACHE_KEY_SCHEMA_VERSION,
+    CACHE_MAX_MB,
+    CACHE_MIN_MB,
+    CACHE_STEP_MB,
+    CHAPTER_MIN_GAP_CHARS,
+    CHUNK_MAX_CHARS,
+    DEFAULT_FFMPEG_RETRIES,
+    DEFAULT_FFMPEG_TIMEOUT_S,
+    DIALOGUE_CONTEXT_CHARS,
+    FIRST_CHUNK_PREVIEW_CHARS,
+    MANIFESTS_DIR,
+    MAX_CLOUD_MANIFEST_BYTES,
+    MAX_REMOTE_TEXT_BYTES,
+    MIN_FREE_DISK_MB,
+    PRONUNCIATIONS_DIR,
+    PREVIEW_SAMPLE_TEXT,
+    SAVED_INPUTS_DIR,
+    TEMP_DIR,
+    OUTPUT_DIR,
+    UI_DRAFT_PATH,
+    URL_FETCH_TIMEOUT_S,
+    URL_READ_CHUNK_SIZE,
+    USER_AGENT,
+    VOICE_BROWSER_PAGE_SIZE,
+    TTS_EDGE_CPS,
+    TTS_KOKORO_CPS,
 )
 
 
@@ -357,7 +368,7 @@ def validate_safe_http_url(raw_url: str, allowed_hosts: Optional[set[str]] = Non
 def fetch_text_url(
     raw_url: str,
     max_bytes: int = MAX_REMOTE_TEXT_BYTES,
-    timeout_s: int = 20,
+    timeout_s: int = URL_FETCH_TIMEOUT_S,
     allowed_hosts: Optional[set[str]] = None,
     allowed_content_types: Optional[tuple[str, ...]] = None,
 ) -> str:
@@ -374,7 +385,7 @@ def fetch_text_url(
         chunks: list[bytes] = []
         total = 0
         while True:
-            chunk = response.read(65536)
+            chunk = response.read(URL_READ_CHUNK_SIZE)
             if not chunk:
                 break
             total += len(chunk)
@@ -386,7 +397,7 @@ def fetch_text_url(
 
 def estimate_generation_seconds(total_chars: int, engine_name: str) -> int:
     # Rough estimates for progress preview.
-    cps = 28 if "edge" in engine_name else 16
+    cps = TTS_EDGE_CPS if "edge" in engine_name else TTS_KOKORO_CPS
     return int(total_chars / max(cps, 1))
 
 
@@ -568,7 +579,7 @@ def create_tts_engine(engine_name: str) -> TTSEngine:
 
 
 class AudioCache:
-    def __init__(self, cache_dir: str | Path = CACHE_DIR, max_size_mb: int = 500):
+    def __init__(self, cache_dir: str | Path = CACHE_DIR, max_size_mb: int = CACHE_DEFAULT_MAX_MB):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.max_size_bytes = max_size_mb * 1024 * 1024
@@ -880,8 +891,8 @@ class SpacyAttributor:
     def attribute_unmatched(self, text: str, dialogue_start: int, dialogue_end: int) -> Optional[str]:
         if not self._ensure_loaded():
             return None
-        ctx_start = max(0, dialogue_start - 500)
-        ctx_end = min(len(text), dialogue_end + 500)
+        ctx_start = max(0, dialogue_start - DIALOGUE_CONTEXT_CHARS)
+        ctx_end = min(len(text), dialogue_end + DIALOGUE_CONTEXT_CHARS)
         context = text[ctx_start:ctx_end]
         doc = self._nlp(context)
         persons = [ent for ent in doc.ents if ent.label_ == "PERSON"]
@@ -962,7 +973,7 @@ def detect_chapters_pattern(text: str) -> list[dict[str, Any]]:
             chapters.append({"position": match.start(), "title": match.group(0).strip(), "method": "pattern"})
     chapters.sort(key=lambda x: x["position"])
     deduped: list[dict[str, Any]] = []
-    min_gap = 200
+    min_gap = CHAPTER_MIN_GAP_CHARS
     for chapter in chapters:
         if deduped and abs(chapter["position"] - deduped[-1]["position"]) < min_gap:
             continue
@@ -1006,7 +1017,7 @@ def split_sentences(text: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
-def chunk_text(text: str, max_chars: int = 5500) -> list[str]:
+def chunk_text(text: str, max_chars: int = CHUNK_MAX_CHARS) -> list[str]:
     if len(text) <= max_chars:
         return [text.strip()]
     chunks: list[str] = []
@@ -1031,7 +1042,7 @@ def extract_text_from_url(url: str) -> str:
     html = fetch_text_url(
         safe_url,
         max_bytes=MAX_REMOTE_TEXT_BYTES,
-        timeout_s=20,
+        timeout_s=URL_FETCH_TIMEOUT_S,
         allowed_content_types=("text/", "application/xhtml+xml", "application/xml"),
     )
     try:
@@ -1183,7 +1194,7 @@ def run_preflight_checks() -> list[list[str]]:
     checks.append(["spacy", "OK" if _module_exists("spacy") else "Optional", "Dialogue attribution fallback"])
     checks.append(["spacy model", "OK" if _spacy_model_exists() else "Optional", "en_core_web_sm"])
     disk_mb = shutil.disk_usage(str(BASE_DIR)).free // (1024 * 1024)
-    checks.append(["Free disk", "OK" if disk_mb > 1024 else "Low", f"{disk_mb} MB available"])
+    checks.append(["Free disk", "OK" if disk_mb > MIN_FREE_DISK_MB else "Low", f"{disk_mb} MB available"])
     checks.append(["Free cloud memory", "OK", "JSONBlob anonymous manifest backup is supported"])
     return checks
 
@@ -1214,7 +1225,7 @@ def upload_manifest_to_free_cloud(manifest: dict[str, Any]) -> str:
         method="POST",
         headers={"Content-Type": "application/json"},
     )
-    with urlopen(req, timeout=20) as response:
+    with urlopen(req, timeout=URL_FETCH_TIMEOUT_S) as response:
         location = response.headers.get("Location", "")
     if not location:
         raise RuntimeError("Cloud backup failed: missing location header.")
@@ -1227,7 +1238,7 @@ def load_manifest_from_free_cloud(url: str) -> dict[str, Any]:
     payload = fetch_text_url(
         url.strip(),
         max_bytes=MAX_CLOUD_MANIFEST_BYTES,
-        timeout_s=20,
+        timeout_s=URL_FETCH_TIMEOUT_S,
         allowed_hosts={"jsonblob.com"},
         allowed_content_types=("application/json", "text/plain"),
     )
@@ -1375,7 +1386,7 @@ def stage_parse(
     settings.setdefault("output_format", "m4b")
     settings.setdefault("speed_mode", speed_mode)
     settings.setdefault("max_queue_size", 32)
-    settings.setdefault("cache_max_size_mb", 500)
+    settings.setdefault("cache_max_size_mb", CACHE_DEFAULT_MAX_MB)
     settings.setdefault("enable_free_cloud_memory", False)
     settings.setdefault("free_cloud_manifest_url", "")
     settings.setdefault("cache_key_schema_version", CACHE_KEY_SCHEMA_VERSION)
@@ -1385,10 +1396,10 @@ def stage_parse(
     for chapter in source_chapters:
         candidate = str(chapter.get("text", "") or "").strip()
         if candidate:
-            first_chunk_text = candidate[:2000]
+            first_chunk_text = candidate[:FIRST_CHUNK_PREVIEW_CHARS]
             break
     source_content_sig = hashlib.md5(first_chunk_text.encode("utf-8")).hexdigest()[:10] if first_chunk_text else "empty"
-    cache = AudioCache(max_size_mb=int(settings.get("cache_max_size_mb", 500)))
+    cache = AudioCache(max_size_mb=int(settings.get("cache_max_size_mb", CACHE_DEFAULT_MAX_MB)))
     pronunciation_hash = hash_dict(settings.get("pronunciation_overrides", {}))
 
     manifest_chapters: list[dict[str, Any]] = []
@@ -1419,7 +1430,7 @@ def stage_parse(
                     chapter_segments[-1]["scene_break_after"] = True
                 continue
 
-            chunks = chunk_text(para_text, max_chars=5500)
+            chunks = chunk_text(para_text, max_chars=CHUNK_MAX_CHARS)
             cursor = 0
             for chunk_idx, chunk in enumerate(chunks):
                 rel = para_text.find(chunk, cursor)
@@ -1561,7 +1572,7 @@ async def stage_generate(
     settings = manifest.get("settings", {})
     engine_name = settings.get("tts_engine", "edge-tts")
     engine = create_tts_engine(engine_name)
-    cache = AudioCache(max_size_mb=int(settings.get("cache_max_size_mb", 500)))
+    cache = AudioCache(max_size_mb=int(settings.get("cache_max_size_mb", CACHE_DEFAULT_MAX_MB)))
     pronunciation = PronunciationDict(settings.get("pronunciation_overrides", {}))
     speed = float(settings.get("speed_multiplier", 1.0))
     speed_mode = str(settings.get("speed_mode", "native"))
@@ -2408,10 +2419,13 @@ input, textarea, select {font-size: 16px !important;}
   border-radius: 16px !important;
   box-shadow: 0 10px 30px rgba(2, 6, 23, 0.35) !important;
 }
+.mode-toggle-row { margin-bottom: 8px; }
+.mode-toggle-row .gr-radio { gap: 12px; }
 @media (max-width: 768px) {
   .gradio-container {padding: 10px !important;}
   .gr-row {flex-direction: column !important; gap: 10px !important;}
   .gr-button {width: 100% !important;}
+  .mode-toggle-row .gr-radio { flex-wrap: wrap; }
   .bottom-mobile-nav .nav-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -2457,7 +2471,22 @@ def build_ui():
         remembered_quick_file_state = gr.State("")
         draft_saved_state = gr.State("")
 
-        with gr.Sidebar(open=True):
+        # Easy vs Advanced mode toggle (persisted in ui_draft)
+        _draft = load_ui_draft()
+        _default_mode = str(_draft.get("ui_mode", "easy") or "easy")
+        if _default_mode not in ("easy", "advanced"):
+            _default_mode = "easy"
+
+        with gr.Row(elem_classes=["mode-toggle-row"]):
+            ui_mode_toggle = gr.Radio(
+                choices=[("Easy", "easy"), ("Advanced", "advanced")],
+                value=_default_mode,
+                label="Interface mode",
+                show_label=True,
+                elem_id="abm-ui-mode",
+            )
+
+        with gr.Sidebar(open=(_default_mode == "advanced")):
             gr.Markdown("## My Projects")
             gr.Markdown("Load saved manifests from local disk or cloud backups.")
             project_selector = gr.Dropdown(label="Saved Projects", choices=[], value=None)
@@ -2590,7 +2619,7 @@ def build_ui():
             with gr.Accordion("Advanced generation options", open=False):
                 normalize_check = gr.Checkbox(label="Normalize loudness (-19 LUFS)", value=True)
                 low_memory_mode = gr.Checkbox(label="Low-memory mode (best for free cloud machines)", value=True)
-                cache_size_mb = gr.Slider(128, 4096, value=500, step=64, label="Cache size limit (MB)")
+                cache_size_mb = gr.Slider(CACHE_MIN_MB, CACHE_MAX_MB, value=CACHE_DEFAULT_MAX_MB, step=CACHE_STEP_MB, label="Cache size limit (MB)")
                 free_cloud_memory = gr.Checkbox(label="Enable free cloud memory backup (JSONBlob)", value=False)
             generation_badge = gr.Markdown(runtime_state_badge("idle", "Waiting to start"))
             progress_text = gr.Markdown("")
@@ -2643,6 +2672,7 @@ def build_ui():
             )
 
         def on_save_ui_draft(
+            ui_mode_val: str,
             adv_mode: str,
             adv_url: str,
             adv_text: str,
@@ -2656,6 +2686,7 @@ def build_ui():
             remembered_quick_file: str,
         ):
             draft = load_ui_draft()
+            draft["ui_mode"] = str(ui_mode_val or "easy") if ui_mode_val in ("easy", "advanced") else "easy"
             draft["adv_input_mode"] = adv_mode
             draft["adv_url"] = adv_url
             draft["adv_text"] = adv_text
@@ -3086,13 +3117,13 @@ def build_ui():
                     rate = done / elapsed if done > 0 else 0.0
                     remaining = max(0, total - done)
                     eta = (remaining / rate) if rate > 0 else 0.0
-                    rich_desc = (
-                        f"Segment {done}/{total} · ETA {format_eta(eta)}"
-                        + (f" · {desc}" if desc else "")
-                    )
+                    pct = int((done / total) * 100) if total else 0
+                    rich_desc = f"Segment {done}/{total} ({pct}%) · ETA {format_eta(eta)}"
+                    if desc:
+                        rich_desc += f" · {desc}"
                     progress(ratio, desc=rich_desc)
 
-                progress(0, desc="Generating segment audio")
+                progress(0, desc="Generating segment audio…")
                 manifest = run_coro_sync(
                     stage_generate(
                         manifest=manifest,
@@ -3112,7 +3143,7 @@ def build_ui():
                         runtime_state_badge("cancelled", "Generation cancelled"),
                     )
 
-                progress(0.92, desc="Assembling final audiobook")
+                progress(0.92, desc="Assembling final audiobook…")
                 output_path = stage_assemble(
                     manifest=manifest,
                     output_format=settings["output_format"],
@@ -3296,7 +3327,7 @@ def build_ui():
                 "speed_mode": "post_process",
                 "max_concurrent": 1,
                 "max_queue_size": 8,
-                "cache_max_size_mb": 512,
+                "cache_max_size_mb": CACHE_DEFAULT_MAX_MB,
                 "background_music": None,
                 "music_duck_db": -15,
                 "output_format": output_mode,
@@ -3304,21 +3335,34 @@ def build_ui():
                 "free_cloud_manifest_url": "",
             }
             try:
-                progress(0.01, desc="Parsing source")
+                progress(0.01, desc="Stage 1/3: Parsing source…")
                 manifest, manifest_path = stage_parse(
                     input_path=input_path,
                     settings=settings,
                     url=parsed_url,
                     raw_text=parsed_text,
                 )
+                num_chapters = len(manifest.get("chapters", []))
+                num_segments = sum(len(ch.get("segments", [])) for ch in manifest.get("chapters", []))
+                progress(0.04, desc=f"Parsed {num_chapters} chapters, {num_segments} segments")
                 preview_md = build_chapter_preview_markdown(manifest)
                 remember_last_project(project_id=f"local::{manifest_path}", manifest_path=manifest_path, cloud_url="")
 
-                def progress_cb(done: int, total: int, desc: str) -> None:
-                    ratio = 0.05 + ((done / total) * 0.8 if total else 0.8)
-                    progress(min(ratio, 0.9), desc=f"Segment {done}/{total} · {desc}")
+                run_started = time.time()
 
-                progress(0.05, desc="Generating audio")
+                def progress_cb(done: int, total: int, desc: str) -> None:
+                    ratio = 0.05 + ((done / total) * 0.85 if total else 0.85)
+                    elapsed = max(0.001, time.time() - run_started)
+                    rate = done / elapsed if done > 0 else 0.0
+                    remaining = max(0, total - done)
+                    eta = (remaining / rate) if rate > 0 else 0.0
+                    pct = int((done / total) * 100) if total else 0
+                    rich_desc = f"Stage 2/3: Generating {done}/{total} ({pct}%) · ETA {format_eta(eta)}"
+                    if desc:
+                        rich_desc += f" · {desc}"
+                    progress(min(ratio, 0.9), desc=rich_desc)
+
+                progress(0.05, desc="Stage 2/3: Generating audio…")
                 manifest = run_coro_sync(
                     stage_generate(
                         manifest=manifest,
@@ -3367,7 +3411,7 @@ def build_ui():
                     if manifest_has_generation_errors(manifest):
                         raise RuntimeError("Generation failed with both edge-tts and kokoro fallback.")
 
-                progress(0.92, desc="Assembling audiobook")
+                progress(0.92, desc="Stage 3/3: Assembling audiobook…")
                 output_path = stage_assemble(
                     manifest=manifest,
                     output_format=output_mode,
@@ -3617,6 +3661,7 @@ def build_ui():
             outputs=[quick_status, quick_state_badge, quick_chapter_preview_md, quick_player, quick_download, quick_cloud_url],
         )
         for component in [
+            ui_mode_toggle,
             input_mode,
             url_input,
             text_input,
@@ -3630,6 +3675,7 @@ def build_ui():
             component.change(
                 on_save_ui_draft,
                 inputs=[
+                    ui_mode_toggle,
                     input_mode,
                     url_input,
                     text_input,
