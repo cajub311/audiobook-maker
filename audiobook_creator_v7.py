@@ -2193,6 +2193,7 @@ def resolve_source_inputs(
 def collect_project_inventory() -> dict[str, dict[str, str]]:
     inventory: dict[str, dict[str, str]] = {}
     cloud_urls: set[str] = set()
+    known_output_paths: set[str] = set()
     for manifest_file in sorted(MANIFESTS_DIR.glob("*.json")):
         if manifest_file.name.endswith(".bak"):
             continue
@@ -2208,6 +2209,7 @@ def collect_project_inventory() -> dict[str, dict[str, str]]:
             candidate = OUTPUT_DIR / f"{slug}.{ext}"
             if candidate.exists():
                 output_path = str(candidate)
+                known_output_paths.add(output_path)
                 break
         cloud_url = str(manifest.get("runtime", {}).get("cloud_backup", {}).get("url", "") or "")
         if cloud_url:
@@ -2254,6 +2256,23 @@ def collect_project_inventory() -> dict[str, dict[str, str]]:
                 "storage": "cloud",
             },
         )
+    for output_file in sorted(OUTPUT_DIR.glob("*")):
+        if output_file.suffix.lower() not in {".mp3", ".m4b"}:
+            continue
+        output_path = str(output_file)
+        if output_path in known_output_paths:
+            continue
+        key = f"output::{output_path}"
+        inventory[key] = {
+            "id": key,
+            "label": f"{output_file.name} · output",
+            "title": output_file.stem,
+            "state": "ready",
+            "manifest_path": "",
+            "cloud_url": "",
+            "output_path": output_path,
+            "storage": "output",
+        }
     return inventory
 
 
@@ -2397,6 +2416,7 @@ def build_ui():
                 refresh_projects_btn = gr.Button("Refresh", variant="secondary")
                 load_project_btn = gr.Button("Load", variant="primary")
             resume_last_btn = gr.Button("Resume Last Project", variant="primary")
+            open_output_btn = gr.Button("Open Output", variant="secondary")
             delete_project_btn = gr.Button("Delete Selected", variant="stop")
             project_action_status = gr.Markdown("")
 
@@ -2672,6 +2692,23 @@ def build_ui():
                     "_No project selected._",
                 )
             try:
+                if meta.get("storage") == "output":
+                    output_path = str(meta.get("output_path", "") or "")
+                    details = project_meta_to_markdown(meta)
+                    return (
+                        "Output entry selected. Use 'Open Output' to play/download directly.",
+                        "",
+                        "_No data yet._",
+                        "_No chapter preview yet._",
+                        [],
+                        [],
+                        "",
+                        "",
+                        "",
+                        gr.Textbox(value=""),
+                        runtime_state_badge("completed", "Output ready"),
+                        details,
+                    )
                 if meta.get("storage") == "cloud":
                     cloud_url = str(meta.get("cloud_url", "") or "")
                     manifest = load_manifest_from_free_cloud(cloud_url)
@@ -2765,6 +2802,18 @@ def build_ui():
                 return "Project deleted.", gr.Dropdown(choices=choices, value=selected), inventory, details
             except Exception as exc:
                 return f"Delete failed: {exc}", gr.Dropdown(), project_map, project_meta_to_markdown(meta)
+
+        def on_open_project_output(project_id: Optional[str], project_map: dict[str, dict[str, str]]):
+            if not project_id:
+                return "Select a project first.", None, None, None, None
+            meta = (project_map or {}).get(project_id, {})
+            output_path = str(meta.get("output_path", "") or "")
+            if not output_path:
+                return "No output file is linked for this project yet.", None, None, None, None
+            if not Path(output_path).exists():
+                return "Output file is missing from disk.", None, None, None, None
+            msg = f"Opened output: `{output_path}`"
+            return msg, output_path, output_path, output_path, output_path
 
         def on_preview(engine_label: str, voice: str):
             if not voice:
@@ -3392,6 +3441,11 @@ def build_ui():
             on_delete_project,
             inputs=[project_selector, project_map_state],
             outputs=[project_action_status, project_selector, project_map_state, project_details],
+        )
+        open_output_btn.click(
+            on_open_project_output,
+            inputs=[project_selector, project_map_state],
+            outputs=[project_action_status, audio_player, download_file, quick_player, quick_download],
         )
         file_input.change(on_adv_file_upload, inputs=[file_input], outputs=[remembered_adv_file_state, draft_restore_info_md])
         quick_file_input.change(

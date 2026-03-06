@@ -73,6 +73,7 @@ GRADIO_SHARE=1 python3 audiobook_creator_v7.py
 - Draft persistence (`ui_draft.json`) for phone text/url/file workflows
 - Last-project resume memory (`app_state.json`) and one-tap resume button
 - Per-book memory for character voices + pronunciation overrides (`pronunciations/book_profiles`)
+- Sidebar scans manifest + cloud + output files, with one-tap **Open Output** playback
 - Runtime output folders auto-created
 - Optional dependency fallbacks (graceful degradation)
 - Basic cancel handling during generation
