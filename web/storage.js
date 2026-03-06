@@ -3,13 +3,17 @@ const DRAFT_KEY = "abm-web-demo-draft";
 export function saveDraft(text) {
   try {
     localStorage.setItem(DRAFT_KEY, String(text || ""));
-  } catch (_err) {}
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 }
 
 export function loadDraft() {
   try {
     return localStorage.getItem(DRAFT_KEY) || "";
-  } catch (_err) {
+  } catch (err) {
+    console.warn("loadDraft failed:", err.message);
     return "";
   }
 }

@@ -51,8 +51,17 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (url.pathname.startsWith("/api/")) {
+    // /api/launch falls back to cached launcher page when offline
+    // Other API endpoints return a JSON offline error so callers can handle it gracefully
+    const isLaunch = url.pathname === "/api/launch";
     event.respondWith(
-      fetch(event.request).catch(() => caches.match("/api/launch"))
+      fetch(event.request).catch(() => {
+        if (isLaunch) return caches.match("/api/launch");
+        return new Response(
+          JSON.stringify({ ok: false, error: "offline" }),
+          { status: 503, headers: { "Content-Type": "application/json" } }
+        );
+      })
     );
     return;
   }

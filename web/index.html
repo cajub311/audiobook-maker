@@ -95,6 +95,7 @@
       const output = document.getElementById("output");
       const stats = document.getElementById("stats");
       let currentDemo = null;
+      let isGenerating = false;
 
       const setStatus = (text) => { status.textContent = text; };
       const updateStats = () => {
@@ -121,37 +122,52 @@
       });
 
       document.getElementById("demo-save").addEventListener("click", () => {
-        saveDraft(input.value || "");
-        setStatus("Draft saved locally.");
+        const result = saveDraft(input.value || "");
+        if (result && !result.ok) {
+          setStatus(`Save failed: ${result.error || "storage quota exceeded"}`);
+        } else {
+          setStatus("Draft saved locally.");
+        }
       });
 
+      const generateBtn = document.getElementById("demo-generate");
       document.getElementById("demo-generate").addEventListener("click", async () => {
+        if (isGenerating) return;
         if (!(input.value || "").trim()) {
           setStatus("Paste some text first.");
           return;
         }
-        setStatus("Creating browser demo project...");
-        currentDemo = makeDemoProject(input.value);
-        output.textContent = JSON.stringify(currentDemo.summary, null, 2);
-        const start = await startCloudProcess({ text: currentDemo.previewText, demoMode: true });
-        if (!start.ok || !start.data || !start.data.job_id) {
-          setStatus("Demo ready locally. Cloud API unavailable right now.");
-          return;
-        }
-        const jobId = start.data.job_id;
-        setStatus(`Cloud demo job queued (${jobId}). Polling progress...`);
-        for (let attempt = 0; attempt < 24; attempt += 1) {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          const polled = await pollCloudProcess(jobId);
-          if (!polled.ok || !polled.data) {
-            continue;
+        isGenerating = true;
+        generateBtn.disabled = true;
+        generateBtn.textContent = "Generating...";
+        try {
+          setStatus("Creating browser demo project...");
+          currentDemo = makeDemoProject(input.value);
+          output.textContent = JSON.stringify(currentDemo.summary, null, 2);
+          const start = await startCloudProcess({ text: currentDemo.previewText, demoMode: true });
+          if (!start.ok || !start.data || !start.data.job_id) {
+            setStatus("Demo ready locally. Cloud API unavailable right now.");
+            return;
           }
-          const p = Number(polled.data.progress_percent || 0);
-          const eta = Number(polled.data.eta_seconds || 0);
-          setStatus(`Cloud job ${polled.data.status}: ${p}% · ETA ${eta}s`);
-          if (polled.data.status === "completed") {
-            break;
+          const jobId = start.data.job_id;
+          setStatus(`Cloud demo job queued (${jobId}). Polling progress...`);
+          for (let attempt = 0; attempt < 24; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            const polled = await pollCloudProcess(jobId);
+            if (!polled.ok || !polled.data) {
+              continue;
+            }
+            const p = Number(polled.data.progress_percent || 0);
+            const eta = Number(polled.data.eta_seconds || 0);
+            setStatus(`Cloud job ${polled.data.status}: ${p}% · ETA ${eta}s`);
+            if (polled.data.status === "completed") {
+              break;
+            }
           }
+        } finally {
+          isGenerating = false;
+          generateBtn.disabled = false;
+          generateBtn.textContent = "Generate 5-minute demo";
         }
       });
 
@@ -189,8 +205,12 @@
             await navigator.clipboard.writeText(shareText);
             setStatus("Copied demo text to clipboard.");
           }
-        } catch (_err) {
-          setStatus("Share cancelled.");
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            setStatus("Share cancelled.");
+          } else {
+            setStatus("Share failed. Try copying the text manually.");
+          }
         }
       });
 

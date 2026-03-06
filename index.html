@@ -88,7 +88,7 @@
             class="h-6"
           />
           <img alt="Version badge" src="https://img.shields.io/badge/version-v7-indigo" class="h-6" />
-          <button id="theme-toggle" aria-label="Toggle light and dark theme" class="rounded-full border border-slate-300 px-3 py-1 text-sm dark:border-slate-700">
+          <button id="theme-toggle" aria-label="Toggle light and dark theme" aria-pressed="false" class="rounded-full border border-slate-300 px-3 py-1 text-sm dark:border-slate-700">
             Toggle theme
           </button>
         </div>
@@ -368,10 +368,14 @@
         document.documentElement.classList.remove("dark");
       }
 
-      document.getElementById("theme-toggle").addEventListener("click", () => {
+      const themeToggle = document.getElementById("theme-toggle");
+      themeToggle.setAttribute("aria-pressed", document.documentElement.classList.contains("dark") ? "true" : "false");
+      themeToggle.addEventListener("click", () => {
         const html = document.documentElement;
         html.classList.toggle("dark");
-        localStorage.setItem("abm-theme", html.classList.contains("dark") ? "dark" : "light");
+        const isDark = html.classList.contains("dark");
+        localStorage.setItem("abm-theme", isDark ? "dark" : "light");
+        themeToggle.setAttribute("aria-pressed", isDark ? "true" : "false");
       });
 
       for (const btn of document.querySelectorAll(".copy-btn")) {
@@ -408,7 +412,12 @@
             haptic([15]);
             showToast("Link copied to clipboard", "success");
           }
-        } catch (_err) {}
+        } catch (err) {
+          if (!err || err.name !== "AbortError") {
+            showToast("Share failed. Try copying the link manually.", "error");
+            haptic([30, 40, 30]);
+          }
+        }
       });
 
       const calcPages = document.getElementById("calc-pages");

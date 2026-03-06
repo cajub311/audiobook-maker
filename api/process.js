@@ -54,7 +54,7 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    const jobId = `job_${Math.random().toString(36).slice(2, 10)}`;
+    const jobId = `job_${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
     const chars = text.length;
     const cps = 28; // edge-like estimate
     const estMs = Math.max(4000, Math.min(180000, Math.floor((chars / cps) * 1000)));
@@ -64,13 +64,15 @@ module.exports = async function handler(req, res) {
       textChars: chars,
       demoMode,
     });
+    // Clean up completed job after 5 minutes to prevent memory accumulation
+    setTimeout(() => JOBS.delete(jobId), estMs + 300000);
 
     res.status(202).json({
       status: "queued",
       job_id: jobId,
       poll_url: `/api/process?job_id=${encodeURIComponent(jobId)}`,
       estimated_seconds: Math.ceil(estMs / 1000),
-      note: "Demo async job accepted. Poll poll_url for progress.",
+      note: "Demo async job accepted. Check poll_url for progress.",
     });
     return;
   }
