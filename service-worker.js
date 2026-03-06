@@ -1,4 +1,4 @@
-const CACHE_NAME = "audiobook-launcher-v4";
+const CACHE_NAME = "audiobook-launcher-v5";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -10,9 +10,7 @@ const APP_SHELL = [
   "/manifest.webmanifest",
   "/icon.svg",
   "/assets/gradio-ui-preview.svg",
-  "/api/launch",
-  "/api/health",
-  "/api/process"
+  "/api/launch"
 ];
 
 self.addEventListener("install", (event) => {
@@ -51,8 +49,26 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (url.pathname.startsWith("/api/")) {
+    if (url.pathname === "/api/launch") {
+      event.respondWith(
+        fetch(event.request).catch(() => caches.match("/api/launch"))
+      );
+      return;
+    }
+    if (url.pathname === "/api/health" || url.pathname === "/api/process") {
+      event.respondWith(
+        fetch(event.request).catch(
+          () =>
+            new Response(JSON.stringify({ ok: false, error: "offline" }), {
+              status: 503,
+              headers: { "Content-Type": "application/json; charset=utf-8" },
+            })
+        )
+      );
+      return;
+    }
     event.respondWith(
-      fetch(event.request).catch(() => caches.match("/api/launch"))
+      fetch(event.request)
     );
     return;
   }

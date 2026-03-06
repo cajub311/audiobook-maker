@@ -94,9 +94,18 @@
       const status = document.getElementById("status");
       const output = document.getElementById("output");
       const stats = document.getElementById("stats");
+      const generateBtn = document.getElementById("demo-generate");
       let currentDemo = null;
+      let isGenerating = false;
+      const generateLabelIdle = "Generate 5-minute demo";
 
       const setStatus = (text) => { status.textContent = text; };
+      const setGeneratingState = (busy) => {
+        isGenerating = !!busy;
+        generateBtn.disabled = !!busy;
+        generateBtn.textContent = busy ? "Generating..." : generateLabelIdle;
+        generateBtn.setAttribute("aria-busy", busy ? "true" : "false");
+      };
       const updateStats = () => {
         const text = String(input.value || "").trim();
         const words = text ? text.split(/\s+/).length : 0;
@@ -107,7 +116,7 @@
         stats.textContent = `Words: ${words} · Chars: ${chars} · Est: ${min}m ${rem}s`;
       };
 
-      input.value = loadDraft();
+      input.value = loadDraft() || "";
       updateStats();
       input.addEventListener("input", updateStats);
 
@@ -121,37 +130,55 @@
       });
 
       document.getElementById("demo-save").addEventListener("click", () => {
-        saveDraft(input.value || "");
-        setStatus("Draft saved locally.");
+        const saved = saveDraft(input.value || "");
+        if (saved && saved.ok) {
+          setStatus("Draft saved locally.");
+          return;
+        }
+        const detail = (saved && saved.error) ? ` (${saved.error})` : "";
+        setStatus(`Could not save draft locally${detail}.`);
       });
 
       document.getElementById("demo-generate").addEventListener("click", async () => {
+        if (isGenerating) {
+          return;
+        }
         if (!(input.value || "").trim()) {
           setStatus("Paste some text first.");
           return;
         }
-        setStatus("Creating browser demo project...");
-        currentDemo = makeDemoProject(input.value);
-        output.textContent = JSON.stringify(currentDemo.summary, null, 2);
-        const start = await startCloudProcess({ text: currentDemo.previewText, demoMode: true });
-        if (!start.ok || !start.data || !start.data.job_id) {
-          setStatus("Demo ready locally. Cloud API unavailable right now.");
-          return;
-        }
-        const jobId = start.data.job_id;
-        setStatus(`Cloud demo job queued (${jobId}). Polling progress...`);
-        for (let attempt = 0; attempt < 24; attempt += 1) {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          const polled = await pollCloudProcess(jobId);
-          if (!polled.ok || !polled.data) {
-            continue;
+        setGeneratingState(true);
+        try {
+          setStatus("Creating browser demo project...");
+          currentDemo = makeDemoProject(input.value);
+          output.textContent = JSON.stringify(currentDemo.summary, null, 2);
+          const start = await startCloudProcess({ text: currentDemo.previewText, demoMode: true });
+          if (!start.ok || !start.data || !start.data.job_id) {
+            setStatus("Demo ready locally. Cloud API unavailable right now.");
+            return;
           }
-          const p = Number(polled.data.progress_percent || 0);
-          const eta = Number(polled.data.eta_seconds || 0);
-          setStatus(`Cloud job ${polled.data.status}: ${p}% · ETA ${eta}s`);
-          if (polled.data.status === "completed") {
-            break;
+          const jobId = start.data.job_id;
+          setStatus(`Cloud demo job queued (${jobId}). Polling progress...`);
+          let completed = false;
+          for (let attempt = 0; attempt < 24; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            const polled = await pollCloudProcess(jobId);
+            if (!polled.ok || !polled.data) {
+              continue;
+            }
+            const p = Number(polled.data.progress_percent || 0);
+            const eta = Number(polled.data.eta_seconds || 0);
+            setStatus(`Cloud job ${polled.data.status}: ${p}% · ETA ${eta}s`);
+            if (polled.data.status === "completed") {
+              completed = true;
+              break;
+            }
           }
+          if (!completed) {
+            setStatus("Cloud demo is taking longer than expected. Please retry in a moment.");
+          }
+        } finally {
+          setGeneratingState(false);
         }
       });
 
@@ -178,19 +205,28 @@
           return;
         }
         const shareText = currentDemo.previewText.slice(0, 1000);
-        try {
-          if (navigator.share) {
+        if (navigator.share) {
+          try {
             await navigator.share({
               title: "Audiobook Maker demo text",
               text: shareText,
             });
             setStatus("Shared demo text.");
-          } else {
-            await navigator.clipboard.writeText(shareText);
-            setStatus("Copied demo text to clipboard.");
+            return;
+          } catch (err) {
+            if (err && err.name === "AbortError") {
+              setStatus("Share cancelled.");
+              return;
+            }
+            // Fall through to clipboard fallback.
           }
-        } catch (_err) {
-          setStatus("Share cancelled.");
+        }
+        try {
+          await navigator.clipboard.writeText(shareText);
+          setStatus("Copied demo text to clipboard.");
+        } catch (err) {
+          const detail = err instanceof Error ? err.message : String(err);
+          setStatus(`Share failed: ${detail}`);
         }
       });
 

@@ -1,5 +1,6 @@
 const JOBS = global.__abm_process_jobs || new Map();
 global.__abm_process_jobs = JOBS;
+const JOB_TTL_AFTER_COMPLETE_MS = 5 * 60 * 1000;
 
 function safeBody(req) {
   if (!req || req.body == null) return {};
@@ -17,6 +18,10 @@ function projectStatus(job) {
   const status = progress >= 100 ? "completed" : progress < 10 ? "queued" : "processing";
   const etaMs = Math.max(0, job.targetMs - elapsedMs);
   return { progress, status, etaMs };
+}
+
+function createJobId() {
+  return `job_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 }
 
 module.exports = async function handler(req, res) {
@@ -54,23 +59,31 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    const jobId = `job_${Math.random().toString(36).slice(2, 10)}`;
+    const jobId = createJobId();
     const chars = text.length;
     const cps = 28; // edge-like estimate
     const estMs = Math.max(4000, Math.min(180000, Math.floor((chars / cps) * 1000)));
+    const createdAt = Date.now();
     JOBS.set(jobId, {
-      createdAt: Date.now(),
+      createdAt,
       targetMs: estMs,
       textChars: chars,
       demoMode,
     });
+    const cleanupDelayMs = estMs + JOB_TTL_AFTER_COMPLETE_MS;
+    const cleanupTimer = setTimeout(() => {
+      JOBS.delete(jobId);
+    }, cleanupDelayMs);
+    if (typeof cleanupTimer.unref === "function") {
+      cleanupTimer.unref();
+    }
 
     res.status(202).json({
       status: "queued",
       job_id: jobId,
       poll_url: `/api/process?job_id=${encodeURIComponent(jobId)}`,
       estimated_seconds: Math.ceil(estMs / 1000),
-      note: "Demo async job accepted. Poll poll_url for progress.",
+      note: "Demo async job accepted. Check poll_url for progress.",
     });
     return;
   }
