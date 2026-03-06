@@ -13,6 +13,10 @@ module.exports = function handler(req, res) {
     web_demo: "/web/index.html",
     note: "Use python on systems where python3 is not available.",
     health_endpoint: "/api/health",
-    process_endpoint: "/api/process"
+    process_endpoint: "/api/process",
+    process_usage: {
+      start: "POST /api/process with { text, demoMode }",
+      poll: "GET /api/process?job_id=<id>",
+    }
   });
 };

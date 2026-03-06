@@ -84,7 +84,7 @@
     <script type="module">
       import { makeDemoProject } from "./processor.js";
       import { loadDraft, saveDraft } from "./storage.js";
-      import { tryCloudProcess } from "./api-client.js";
+      import { pollCloudProcess, startCloudProcess } from "./api-client.js";
 
       const input = document.getElementById("input");
       const status = document.getElementById("status");
@@ -108,11 +108,25 @@
         setStatus("Creating browser demo project...");
         currentDemo = makeDemoProject(input.value);
         output.textContent = JSON.stringify(currentDemo.summary, null, 2);
-        const cloud = await tryCloudProcess({ text: currentDemo.previewText, demoMode: true });
-        if (cloud.ok) {
-          setStatus("Demo ready. Cloud API endpoint responded.");
-        } else {
-          setStatus("Demo ready. Cloud API not enabled yet, using local browser demo.");
+        const start = await startCloudProcess({ text: currentDemo.previewText, demoMode: true });
+        if (!start.ok || !start.data || !start.data.job_id) {
+          setStatus("Demo ready locally. Cloud API unavailable right now.");
+          return;
+        }
+        const jobId = start.data.job_id;
+        setStatus(`Cloud demo job queued (${jobId}). Polling progress...`);
+        for (let attempt = 0; attempt < 24; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          const polled = await pollCloudProcess(jobId);
+          if (!polled.ok || !polled.data) {
+            continue;
+          }
+          const p = Number(polled.data.progress_percent || 0);
+          const eta = Number(polled.data.eta_seconds || 0);
+          setStatus(`Cloud job ${polled.data.status}: ${p}% · ETA ${eta}s`);
+          if (polled.data.status === "completed") {
+            break;
+          }
         }
       });
 
