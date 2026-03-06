@@ -754,6 +754,7 @@ def stage_parse(
     settings: Optional[dict[str, Any]] = None,
     url: Optional[str] = None,
     raw_text: Optional[str] = None,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> tuple[dict[str, Any], str]:
     parse_started = time.time()
     ensure_runtime_dirs()
@@ -792,8 +793,11 @@ def stage_parse(
     manifest_chapters: list[dict[str, Any]] = []
     character_occurrences: dict[str, int] = {}
     total_chars = 0
+    total_chapters = max(1, len(source_chapters))
 
     for chapter_idx, chapter_info in enumerate(source_chapters):
+        if progress_callback:
+            progress_callback(chapter_idx, total_chapters, f"Parsing chapter {chapter_idx + 1}/{total_chapters}")
         chapter_title = chapter_info.get("title") or f"Chapter {chapter_idx+1}"
         chapter_text = chapter_info.get("text", "").strip()
         if not chapter_text:
@@ -874,6 +878,8 @@ def stage_parse(
                 "segments": chapter_segments,
             }
         )
+        if progress_callback:
+            progress_callback(chapter_idx + 1, total_chapters, f"Parsed chapter {chapter_idx + 1}/{total_chapters}")
         del chapter_text, dialogues, chapter_segments
         gc.collect()
 
@@ -2446,6 +2452,7 @@ def build_ui():
             cache_mb: float,
             cloud_enabled: bool,
             cloud_url: str,
+            progress=gr.Progress(),
         ):
             try:
                 input_path, parsed_url, parsed_text = resolve_source_inputs(
@@ -2480,11 +2487,24 @@ def build_ui():
                     "free_cloud_manifest_url": str(cloud_url or ""),
                     "tts_min_request_interval_s": DEFAULT_TTS_MIN_REQUEST_INTERVAL_S,
                 }
+                parse_started = time.time()
+
+                def parse_progress_cb(done: int, total: int, desc: str) -> None:
+                    safe_total = max(1, total)
+                    ratio = min(0.45, (done / safe_total) * 0.45)
+                    elapsed = max(0.001, time.time() - parse_started)
+                    rate = done / elapsed if done > 0 else 0.0
+                    remaining = max(0, safe_total - done)
+                    eta = (remaining / rate) if rate > 0 else 0.0
+                    progress(ratio, desc=f"📚 {desc} · ETA {format_eta(eta)}")
+
+                progress(0.01, desc="📚 Starting parse")
                 manifest, manifest_path = stage_parse(
                     input_path=input_path,
                     settings=settings,
                     url=parsed_url,
                     raw_text=parsed_text,
+                    progress_callback=parse_progress_cb,
                 )
                 cloud_url_effective = str(cloud_url or "")
                 cloud_warning = ""
@@ -2519,6 +2539,7 @@ def build_ui():
                     status = f"{status}\n\n{metrics_md}"
                 if cloud_warning:
                     status += cloud_warning
+                progress(1.0, desc="✅ Parse complete")
                 return (
                     status,
                     rows_to_markdown(["Chapter", "Segments", "Characters Found", "Cache Status"], chapter_rows),
@@ -2925,11 +2946,22 @@ def build_ui():
                 }
                 progress(0.01, desc="📖 Parsing source")
                 run_started = time.time()
+
+                def parse_progress_cb(done: int, total: int, desc: str) -> None:
+                    safe_total = max(1, total)
+                    ratio = 0.01 + min(0.24, (done / safe_total) * 0.24)
+                    elapsed = max(0.001, time.time() - run_started)
+                    rate = done / elapsed if done > 0 else 0.0
+                    remaining = max(0, safe_total - done)
+                    eta = (remaining / rate) if rate > 0 else 0.0
+                    progress(ratio, desc=f"📚 {desc} · ETA {format_eta(eta)}")
+
                 manifest, manifest_path = stage_parse(
                     input_path=input_path,
                     settings=settings,
                     url=parsed_url,
                     raw_text=parsed_text,
+                    progress_callback=parse_progress_cb,
                 )
                 preview_md = build_chapter_preview_markdown(manifest)
                 remember_last_project(project_id=f"local::{manifest_path}", manifest_path=manifest_path, cloud_url="")
@@ -2939,10 +2971,10 @@ def build_ui():
                     rate = done / elapsed if done > 0 else 0.0
                     remaining = max(0, total - done)
                     eta = (remaining / rate) if rate > 0 else 0.0
-                    ratio = 0.05 + ((done / total) * 0.8 if total else 0.8)
+                    ratio = 0.26 + ((done / total) * 0.64 if total else 0.64)
                     progress(min(ratio, 0.9), desc=f"⏳ {done}/{total} · ETA {format_eta(eta)} · {desc}")
 
-                progress(0.05, desc="🎵 Generating chapter audio")
+                progress(0.26, desc="🎵 Generating chapter audio")
                 manifest = run_coro_sync(
                     stage_generate(
                         manifest=manifest,
