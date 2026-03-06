@@ -11,6 +11,8 @@ from audiobook_creator_v7 import (
     build_atempo_filter,
     choose_resume_project_id,
     create_tts_engine,
+    format_quick_mode_error,
+    humanize_generate_progress_desc,
     load_manifest,
     manifest_has_generation_errors,
     normalize_quick_output_format_label,
@@ -146,6 +148,16 @@ class ReliabilityTests(unittest.TestCase):
             normalize_quick_output_format_label("MP3"),
             "MP3 (single file, easiest to share)",
         )
+
+    def test_generate_progress_humanizer(self):
+        msg = humanize_generate_progress_desc("Generated chapter 2, segment 5 (Alice)")
+        self.assertIn("Chapter 2, segment 5", msg)
+        self.assertIn("Speaker Alice", msg)
+
+    def test_quick_mode_error_formatter_includes_retry(self):
+        out = format_quick_mode_error(RuntimeError("network timeout"))
+        self.assertIn("Quick retry steps", out)
+        self.assertIn("Create Audiobook", out)
 
     def test_tts_engine_factory(self):
         edge = create_tts_engine("edge-tts")

@@ -1559,6 +1559,37 @@ def format_eta(seconds: float) -> str:
     return f"{minutes:02d}:{secs:02d}"
 
 
+def humanize_generate_progress_desc(desc: str) -> str:
+    raw = (desc or "").strip()
+    if not raw:
+        return "Generating audio"
+    low = raw.lower()
+    if "already cached" in low:
+        return "Using cached audio"
+    match_done = re.search(
+        r"generated chapter\s+(\d+)\s*,\s*segment\s+(\d+)(?:\s*\(([^)]+)\))?",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    if match_done:
+        chapter_idx = match_done.group(1)
+        segment_idx = match_done.group(2)
+        speaker = (match_done.group(3) or "").strip()
+        speaker_suffix = f" · Speaker {speaker}" if speaker else ""
+        return f"Generating audio · Chapter {chapter_idx}, segment {segment_idx}{speaker_suffix}"
+    match_error = re.search(
+        r"error on chapter\s+(\d+)\s*,\s*segment\s+(\d+)\s*:\s*(.+)",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    if match_error:
+        chapter_idx = match_error.group(1)
+        segment_idx = match_error.group(2)
+        detail = match_error.group(3).strip()
+        return f"Issue in chapter {chapter_idx}, segment {segment_idx}: {detail}"
+    return raw
+
+
 def format_runtime_metrics(manifest: dict[str, Any]) -> str:
     metrics = manifest.get("runtime", {}).get("metrics", {})
     if not isinstance(metrics, dict) or not metrics:
@@ -1592,6 +1623,17 @@ def classify_runtime_error(exc: Exception) -> tuple[str, str]:
 def format_runtime_error(context: str, exc: Exception) -> str:
     category, hint = classify_runtime_error(exc)
     return f"{context} ({category}): {exc}\n\nHint: {hint}"
+
+
+def format_quick_mode_error(exc: Exception) -> str:
+    base = format_runtime_error("Quick mode failed", exc)
+    return (
+        f"{base}\n\n"
+        "Quick retry steps:\n"
+        "- Check your input (paste text, URL, or file).\n"
+        "- Tap **Create Audiobook** again.\n"
+        "- If network issues continue, retry with a shorter sample."
+    )
 
 
 def runtime_state_badge(state: str, detail: str = "") -> str:
@@ -2756,7 +2798,10 @@ def build_ui():
 
         def on_quick_cancel():
             cancel_event.set()
-            return "Cancellation requested.", runtime_state_badge("cancel_requested", "Stopping...")
+            return (
+                "🟡 Cancel requested. Current clip will finish, then generation will stop safely.",
+                runtime_state_badge("cancel_requested", "Stopping..."),
+            )
 
         def on_generate(
             manifest_path: str,
@@ -2865,10 +2910,8 @@ def build_ui():
                     rate = done / elapsed if done > 0 else 0.0
                     remaining = max(0, total - done)
                     eta = (remaining / rate) if rate > 0 else 0.0
-                    rich_desc = (
-                        f"⏳ {done}/{total} · ETA {format_eta(eta)} · Generating chapter audio"
-                        + (f" · {desc}" if desc else "")
-                    )
+                    detail = humanize_generate_progress_desc(desc)
+                    rich_desc = f"⏳ {done}/{total}: {detail} · ETA {format_eta(eta)}"
                     progress(ratio, desc=rich_desc)
 
                 progress(0, desc="🎙️ Preparing generation queue")
@@ -3081,7 +3124,7 @@ def build_ui():
         ):
             if quick_inflight.is_set():
                 return (
-                    "Quick flow is already running. Please wait for it to finish or cancel it.",
+                    "🟣 Processing in progress. Please wait for completion or tap Cancel.",
                     runtime_state_badge("generating", "Quick run already active"),
                     "_No chapter preview yet._",
                     None,
@@ -3100,7 +3143,7 @@ def build_ui():
                 )
                 if not input_path and not parsed_url and not parsed_text:
                     return (
-                        "Please provide a file, URL, or text.",
+                        "⚪ Ready. Paste text, enter a URL, or choose a file, then tap **Create Audiobook**.",
                         runtime_state_badge("idle", "Waiting for input"),
                         "_No chapter preview yet._",
                         None,
@@ -3159,7 +3202,8 @@ def build_ui():
                     remaining = max(0, total - done)
                     eta = (remaining / rate) if rate > 0 else 0.0
                     ratio = 0.26 + ((done / total) * 0.64 if total else 0.64)
-                    progress(min(ratio, 0.9), desc=f"⏳ {done}/{total} · ETA {format_eta(eta)} · {desc}")
+                    detail = humanize_generate_progress_desc(desc)
+                    progress(min(ratio, 0.9), desc=f"⏳ {done}/{total}: {detail} · ETA {format_eta(eta)}")
 
                 progress(0.26, desc="🎵 Generating chapter audio")
                 manifest = run_coro_sync(
@@ -3172,7 +3216,7 @@ def build_ui():
                 )
                 if cancel_event.is_set():
                     return (
-                        "Generation cancelled.",
+                        "🟡 Generation cancelled. You can tap **Create Audiobook** to continue anytime.",
                         runtime_state_badge("cancelled", "Stopped by user"),
                         preview_md,
                         None,
@@ -3240,6 +3284,7 @@ def build_ui():
                 total_segments = int(manifest.get("progress", {}).get("total_segments", 0))
                 completed_segments = int(manifest.get("progress", {}).get("completed_segments", 0))
                 status = (
+                    "🟢 **Ready** — audiobook complete.\n\n"
                     "### Quick flow summary\n"
                     f"- ✅ Generated segments: **{completed_segments}/{total_segments}**\n"
                     f"- ✅ Output ready: **{Path(output_path).name}**\n"
@@ -3266,7 +3311,7 @@ def build_ui():
             except Exception as exc:
                 logger.exception("Quick generate UI action failed")
                 return (
-                    format_runtime_error("Quick mode failed", exc),
+                    format_quick_mode_error(exc),
                     runtime_state_badge("failed", "Quick flow failed"),
                     "_No chapter preview yet._",
                     None,
