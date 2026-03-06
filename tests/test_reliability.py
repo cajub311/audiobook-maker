@@ -17,6 +17,7 @@ from audiobook_creator_v7 import (
     validate_safe_http_url,
     validate_local_input_file,
 )
+from nlp.dialogue import detect_all_dialogue
 
 
 def write_silence_wav(path: Path, duration_s: float = 0.5, sample_rate: int = 24000) -> None:
@@ -101,6 +102,12 @@ class ReliabilityTests(unittest.TestCase):
             with patch("audiobook_creator_v7.MAX_UPLOAD_FILE_BYTES", 10):
                 with self.assertRaises(ValueError):
                     validate_local_input_file(fake_pdf)
+
+    def test_dialogue_detection_regex_path(self):
+        text = '"Hello there," Alice said.\n\n"Hi," Bob said.'
+        found = detect_all_dialogue(text)
+        speakers = [item.get("speaker") for item in found if item.get("speaker")]
+        self.assertIn("Alice", speakers)
 
 
 if __name__ == "__main__":
