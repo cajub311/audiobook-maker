@@ -46,6 +46,7 @@ from config import (
     CACHE_SLIDER_MIN_MB,
     CACHE_SLIDER_STEP_MB,
     DEFAULT_CACHE_MAX_SIZE_MB,
+    DEFAULT_DIALOGUE_STRATEGY,
     DEFAULT_FFMPEG_RETRIES,
     DEFAULT_FFMPEG_TIMEOUT_S,
     DEFAULT_QUEUE_SIZE,
@@ -66,7 +67,7 @@ from config import (
     USER_AGENT,
     VOICE_BROWSER_PAGE_SIZE,
 )
-from nlp.dialogue import AlternationTracker, detect_all_dialogue
+from nlp.dialogue import AlternationTracker, detect_dialogue_with_strategy, normalize_dialogue_strategy
 
 PREVIEW_SAMPLE_TEXT = (
     "This is a ten second voice preview for Audiobook Maker version seven. "
@@ -1170,6 +1171,10 @@ def ensure_manifest_defaults(manifest: dict[str, Any]) -> dict[str, Any]:
     settings.setdefault("pronunciation_overrides", {})
     settings.setdefault("speed_multiplier", 1.0)
     settings.setdefault("speed_mode", "native")
+    settings.setdefault("dialogue_detection_strategy", DEFAULT_DIALOGUE_STRATEGY)
+    settings["dialogue_detection_strategy"] = normalize_dialogue_strategy(
+        str(settings.get("dialogue_detection_strategy", DEFAULT_DIALOGUE_STRATEGY))
+    )
     settings.setdefault("max_queue_size", DEFAULT_QUEUE_SIZE)
     settings.setdefault("cache_max_size_mb", DEFAULT_CACHE_MAX_SIZE_MB)
     settings.setdefault("enable_free_cloud_memory", False)
@@ -1268,12 +1273,14 @@ def stage_parse(
     dialogue_voice = settings.get("dialogue_voice", "en-US-JennyNeural")
     speed = float(settings.get("speed_multiplier", 1.0))
     speed_mode = str(settings.get("speed_mode", "native"))
+    dialogue_strategy = str(settings.get("dialogue_detection_strategy", DEFAULT_DIALOGUE_STRATEGY))
     settings.setdefault("character_voices", {})
     settings.setdefault("pronunciation_overrides", {})
     settings.setdefault("background_music", None)
     settings.setdefault("music_duck_db", -15)
     settings.setdefault("output_format", "m4b")
     settings.setdefault("speed_mode", speed_mode)
+    settings["dialogue_detection_strategy"] = normalize_dialogue_strategy(dialogue_strategy)
     settings.setdefault("max_queue_size", DEFAULT_QUEUE_SIZE)
     settings.setdefault("cache_max_size_mb", DEFAULT_CACHE_MAX_SIZE_MB)
     settings.setdefault("enable_free_cloud_memory", False)
@@ -1302,7 +1309,7 @@ def stage_parse(
         if not chapter_text:
             continue
         total_chars += len(chapter_text)
-        dialogues = detect_all_dialogue(chapter_text)
+        dialogues = detect_dialogue_with_strategy(chapter_text, settings.get("dialogue_detection_strategy", DEFAULT_DIALOGUE_STRATEGY))
         tracker = AlternationTracker()
         scene_break_positions = set(detect_scene_breaks(chapter_text))
         chapter_segments: list[dict[str, Any]] = []
@@ -2082,6 +2089,19 @@ def normalize_speed_mode_label(label: str) -> str:
     return "native"
 
 
+def normalize_dialogue_strategy_label(label: str) -> str:
+    return normalize_dialogue_strategy(label or DEFAULT_DIALOGUE_STRATEGY)
+
+
+def dialogue_strategy_value_to_label(value: str) -> str:
+    norm = normalize_dialogue_strategy(value or DEFAULT_DIALOGUE_STRATEGY)
+    if norm == "regex_only":
+        return "Regex only (faster)"
+    if norm == "quotes_only":
+        return "Quotes only (fastest)"
+    return "Auto (best quality)"
+
+
 def voices_for_engine(engine_label: str) -> list[str]:
     engine = create_tts_engine(normalize_engine_label(engine_label))
     voices = [v.get("name", "") for v in engine.list_voices()]
@@ -2453,6 +2473,11 @@ def build_ui():
             )
             url_input = gr.Textbox(label="URL", placeholder="https://...", visible=False)
             text_input = gr.Textbox(label="Raw text", lines=8, visible=False)
+            dialogue_strategy = gr.Radio(
+                ["Auto (best quality)", "Regex only (faster)", "Quotes only (fastest)"],
+                value="Auto (best quality)",
+                label="Dialogue detection strategy",
+            )
             parse_btn = gr.Button("Parse & Build Manifest", variant="primary")
             parse_status = gr.Markdown("")
             draft_restore_info_md = gr.Markdown("")
@@ -2553,6 +2578,7 @@ def build_ui():
         def on_restore_ui_draft():
             draft = load_ui_draft()
             adv_mode = str(draft.get("adv_input_mode", "File") or "File")
+            adv_dialogue_strategy = dialogue_strategy_value_to_label(str(draft.get("adv_dialogue_strategy", DEFAULT_DIALOGUE_STRATEGY) or DEFAULT_DIALOGUE_STRATEGY))
             quick_mode = str(draft.get("quick_input_mode", "Paste Text") or "Paste Text")
             adv_file_path = existing_path_or_empty(str(draft.get("adv_file_path", "") or ""))
             quick_file_path = existing_path_or_empty(str(draft.get("quick_file_path", "") or ""))
@@ -2562,6 +2588,7 @@ def build_ui():
                 gr.Radio(value=adv_mode),
                 gr.Textbox(value=str(draft.get("adv_url", "") or "")),
                 gr.Textbox(value=str(draft.get("adv_text", "") or "")),
+                gr.Radio(value=adv_dialogue_strategy),
                 gr.Radio(value=quick_mode),
                 gr.Textbox(value=str(draft.get("quick_url", "") or "")),
                 gr.Textbox(value=str(draft.get("quick_text", "") or "")),
@@ -2578,6 +2605,7 @@ def build_ui():
             adv_mode: str,
             adv_url: str,
             adv_text: str,
+            adv_dialogue_strategy: str,
             quick_mode: str,
             quick_url: str,
             quick_text: str,
@@ -2591,6 +2619,7 @@ def build_ui():
             draft["adv_input_mode"] = adv_mode
             draft["adv_url"] = adv_url
             draft["adv_text"] = adv_text
+            draft["adv_dialogue_strategy"] = normalize_dialogue_strategy_label(adv_dialogue_strategy)
             draft["quick_input_mode"] = quick_mode
             draft["quick_url"] = quick_url
             draft["quick_text"] = quick_text
@@ -2823,6 +2852,7 @@ def build_ui():
             dialogue: str,
             speed: float,
             speed_mode_label: str,
+            dialogue_strategy_label: str,
             pron_rows: Any,
             low_mem: bool,
             cache_mb: float,
@@ -2839,6 +2869,7 @@ def build_ui():
                 )
                 engine_name = normalize_engine_label(engine_label)
                 norm_speed_mode = normalize_speed_mode_label(speed_mode_label)
+                norm_dialogue_strategy = normalize_dialogue_strategy_label(dialogue_strategy_label)
                 narrator = narrator or "en-US-GuyNeural"
                 dialogue = dialogue or "en-US-JennyNeural"
                 max_concurrent = 1 if low_mem else create_tts_engine(engine_name).max_concurrent
@@ -2850,6 +2881,7 @@ def build_ui():
                     "pronunciation_overrides": parse_pronunciation_table(pron_rows),
                     "speed_multiplier": float(speed),
                     "speed_mode": norm_speed_mode,
+                    "dialogue_detection_strategy": norm_dialogue_strategy,
                     "max_concurrent": max_concurrent,
                     "max_queue_size": LOW_MEMORY_QUEUE_SIZE if low_mem else DEFAULT_QUEUE_SIZE,
                     "cache_max_size_mb": int(cache_mb),
@@ -2891,7 +2923,8 @@ def build_ui():
                 status = (
                     f"Parsed **{len(manifest.get('chapters', []))}** chapters, "
                     f"**{manifest['progress']['total_segments']}** segments. "
-                    f"Estimated generation: **~{estimate // 60} min**."
+                    f"Estimated generation: **~{estimate // 60} min**. "
+                    f"Dialogue strategy: **{norm_dialogue_strategy}**."
                 )
                 if cloud_warning:
                     status += cloud_warning
@@ -3280,6 +3313,7 @@ def build_ui():
                     "pronunciation_overrides": {},
                     "speed_multiplier": 1.0,
                     "speed_mode": "post_process",
+                    "dialogue_detection_strategy": DEFAULT_DIALOGUE_STRATEGY,
                     "max_concurrent": 1,
                     "max_queue_size": LOW_MEMORY_QUEUE_SIZE,
                     "cache_max_size_mb": QUICK_CACHE_MAX_SIZE_MB,
@@ -3444,6 +3478,7 @@ def build_ui():
                 input_mode,
                 url_input,
                 text_input,
+                dialogue_strategy,
                 quick_input_mode,
                 quick_url_input,
                 quick_text_input,
@@ -3559,6 +3594,7 @@ def build_ui():
                 dialogue_voice,
                 speed_slider,
                 speed_mode,
+                dialogue_strategy,
                 pronunciation_table,
                 low_memory_mode,
                 cache_size_mb,
@@ -3622,6 +3658,7 @@ def build_ui():
             input_mode,
             url_input,
             text_input,
+            dialogue_strategy,
             quick_input_mode,
             quick_url_input,
             quick_text_input,
@@ -3635,6 +3672,7 @@ def build_ui():
                     input_mode,
                     url_input,
                     text_input,
+                    dialogue_strategy,
                     quick_input_mode,
                     quick_url_input,
                     quick_text_input,

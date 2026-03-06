@@ -17,7 +17,7 @@ from audiobook_creator_v7 import (
     validate_safe_http_url,
     validate_local_input_file,
 )
-from nlp.dialogue import detect_all_dialogue
+from nlp.dialogue import detect_all_dialogue, detect_dialogue_with_strategy, normalize_dialogue_strategy
 
 
 def write_silence_wav(path: Path, duration_s: float = 0.5, sample_rate: int = 24000) -> None:
@@ -108,6 +108,17 @@ class ReliabilityTests(unittest.TestCase):
         found = detect_all_dialogue(text)
         speakers = [item.get("speaker") for item in found if item.get("speaker")]
         self.assertIn("Alice", speakers)
+
+    def test_dialogue_strategy_normalization(self):
+        self.assertEqual(normalize_dialogue_strategy("Regex only (faster)"), "regex_only")
+        self.assertEqual(normalize_dialogue_strategy("Quotes only"), "quotes_only")
+        self.assertEqual(normalize_dialogue_strategy("Auto"), "auto")
+
+    def test_dialogue_strategy_quotes_only(self):
+        text = '"Hello there," Alice said.'
+        found = detect_dialogue_with_strategy(text, "quotes_only")
+        self.assertTrue(found)
+        self.assertIsNone(found[0].get("speaker"))
 
 
 if __name__ == "__main__":

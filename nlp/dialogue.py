@@ -30,6 +30,15 @@ PATTERN_MID = re.compile(
 )
 
 
+def normalize_dialogue_strategy(value: str) -> str:
+    low = (value or "").strip().lower()
+    if "regex" in low:
+        return "regex_only"
+    if "quote" in low:
+        return "quotes_only"
+    return "auto"
+
+
 def deduplicate_by_position(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     items = sorted(items, key=lambda x: (x["start"], -(x["end"] - x["start"])))
     output: list[dict[str, Any]] = []
@@ -181,3 +190,12 @@ def detect_all_dialogue(chapter_text: str) -> list[dict[str, Any]]:
             q["method"] = "unattributed"
 
     return quotes
+
+
+def detect_dialogue_with_strategy(chapter_text: str, strategy: str = "auto") -> list[dict[str, Any]]:
+    strategy_norm = normalize_dialogue_strategy(strategy)
+    if strategy_norm == "regex_only":
+        return extract_dialogue_regex(chapter_text)
+    if strategy_norm == "quotes_only":
+        return find_all_quotes(chapter_text)
+    return detect_all_dialogue(chapter_text)
