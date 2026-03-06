@@ -1498,6 +1498,23 @@ def format_eta(seconds: float) -> str:
     return f"{minutes:02d}:{secs:02d}"
 
 
+def format_runtime_metrics(manifest: dict[str, Any]) -> str:
+    metrics = manifest.get("runtime", {}).get("metrics", {})
+    if not isinstance(metrics, dict) or not metrics:
+        return ""
+    labels = [("parse", "Parse"), ("generate", "Generate"), ("assemble", "Assemble")]
+    lines: list[str] = []
+    for key, label in labels:
+        entry = metrics.get(key)
+        if not isinstance(entry, dict):
+            continue
+        seconds = float(entry.get("seconds", 0.0) or 0.0)
+        lines.append(f"- ⏱️ {label}: **{seconds:.2f}s**")
+    if not lines:
+        return ""
+    return "#### Stage timings\n" + "\n".join(lines)
+
+
 def classify_runtime_error(exc: Exception) -> tuple[str, str]:
     message = str(exc or "").lower()
     if isinstance(exc, ValueError):
@@ -2316,6 +2333,9 @@ def build_ui():
                     f"Loaded **{manifest.get('book', {}).get('title', 'project')}** with "
                     f"**{manifest.get('progress', {}).get('total_segments', 0)}** segments."
                 )
+                metrics_md = format_runtime_metrics(manifest)
+                if metrics_md:
+                    parse_msg = f"{parse_msg}\n\n{metrics_md}"
                 details = project_meta_to_markdown(
                     {
                         "title": str(manifest.get("book", {}).get("title", "-")),
@@ -2494,6 +2514,9 @@ def build_ui():
                     f"Estimated generation: **~{estimate // 60} min**. "
                     f"Dialogue strategy: **{norm_dialogue_strategy}**."
                 )
+                metrics_md = format_runtime_metrics(manifest)
+                if metrics_md:
+                    status = f"{status}\n\n{metrics_md}"
                 if cloud_warning:
                     status += cloud_warning
                 return (
@@ -2711,6 +2734,10 @@ def build_ui():
                     f"- ✅ Assembled output: **{Path(output_path).name}**",
                     f"- ⏱️ Runtime: **{format_eta(elapsed_total)}**",
                 ]
+                metrics_md = format_runtime_metrics(manifest)
+                if metrics_md:
+                    status_lines.append("")
+                    status_lines.append(metrics_md)
                 if cloud_backup_note:
                     status_lines.append(f"- ⚠️ {cloud_backup_note.strip()}")
                 return (
@@ -3000,6 +3027,9 @@ def build_ui():
                     f"- ⏱️ Runtime: **{format_eta(elapsed_total)}**"
                     f"{cloud_line}"
                 )
+                metrics_md = format_runtime_metrics(manifest)
+                if metrics_md:
+                    status = f"{status}\n\n{metrics_md}"
                 if cloud_backup_warning:
                     status += f"\n{cloud_backup_warning}"
                 return (
