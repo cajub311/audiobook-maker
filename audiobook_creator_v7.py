@@ -619,7 +619,7 @@ def infer_speaker_for_span(
     segment_text: str,
     dialogues: list[dict[str, Any]],
     tracker: AlternationTracker,
-) -> str:
+) -> dict[str, Any]:
     has_quotes = bool(re.search(r'["\u201C\u201D]', segment_text))
     overlaps = [
         d for d in dialogues if not (span_end <= int(d["start"]) or span_start >= int(d["end"])) and d.get("speaker")
@@ -627,13 +627,25 @@ def infer_speaker_for_span(
     if overlaps:
         speaker = str(overlaps[0]["speaker"]).strip()
         tracker.record(speaker)
-        return speaker
+        return {
+            "speaker": speaker,
+            "speaker_method": str(overlaps[0].get("method", "regex")),
+            "speaker_confidence": float(overlaps[0].get("confidence", 0.95)),
+        }
     if has_quotes:
         predicted = tracker.predict_next()
         if predicted:
             tracker.record(predicted)
-            return predicted
-    return "narrator"
+            return {
+                "speaker": predicted,
+                "speaker_method": "alternation_span",
+                "speaker_confidence": 0.45,
+            }
+    return {
+        "speaker": "narrator",
+        "speaker_method": "narration",
+        "speaker_confidence": 0.2,
+    }
 
 
 def update_run_state(
@@ -700,6 +712,8 @@ def ensure_manifest_defaults(manifest: dict[str, Any]) -> dict[str, Any]:
         for s_idx, seg in enumerate(chapter.get("segments", [])):
             seg.setdefault("index", s_idx)
             seg.setdefault("speaker", "narrator")
+            seg.setdefault("speaker_method", "unknown")
+            seg.setdefault("speaker_confidence", 0.0)
             seg.setdefault("voice", settings.get("narrator_voice", "en-US-GuyNeural"))
             seg.setdefault("status", "pending")
             seg.setdefault("cache_file", None)
@@ -831,7 +845,10 @@ def stage_parse(
                 abs_end = abs_start + len(chunk)
                 cursor = rel + len(chunk)
 
-                speaker = infer_speaker_for_span(abs_start, abs_end, chunk, dialogues, tracker)
+                speaker_info = infer_speaker_for_span(abs_start, abs_end, chunk, dialogues, tracker)
+                speaker = str(speaker_info.get("speaker", "narrator"))
+                speaker_method = str(speaker_info.get("speaker_method", "unknown"))
+                speaker_confidence = float(speaker_info.get("speaker_confidence", 0.0))
                 if speaker != "narrator":
                     character_occurrences[speaker] = character_occurrences.get(speaker, 0) + 1
 
@@ -861,6 +878,8 @@ def stage_parse(
                         "text": chunk,
                         "text_hash": text_hash,
                         "speaker": speaker,
+                        "speaker_method": speaker_method,
+                        "speaker_confidence": speaker_confidence,
                         "voice": voice,
                         "cache_file": cached_file,
                         "duration_seconds": duration,
@@ -1616,6 +1635,41 @@ def build_chapter_preview_markdown(manifest: dict[str, Any], max_items: int = 8)
     return "\n".join(lines)
 
 
+def build_dialogue_review_markdown(manifest: dict[str, Any], max_items: int = 16) -> str:
+    chapters = manifest.get("chapters", []) or []
+    rows: list[str] = []
+    for chapter in chapters:
+        chapter_title = str(chapter.get("title", f"Chapter {int(chapter.get('index', 0)) + 1}"))
+        for seg in chapter.get("segments", []) or []:
+            speaker = str(seg.get("speaker", "narrator") or "narrator").strip()
+            if not speaker or speaker.lower() == "narrator":
+                continue
+            text = str(seg.get("text", "")).strip().replace("\n", " ")
+            if len(text) > 100:
+                text = text[:97] + "..."
+            method = str(seg.get("speaker_method", "unknown"))
+            conf = float(seg.get("speaker_confidence", 0.0))
+            rows.append(
+                f"| {chapter_title} | {speaker} | {method} | {conf:.2f} | {text} |"
+            )
+            if len(rows) >= max_items:
+                break
+        if len(rows) >= max_items:
+            break
+
+    if not rows:
+        return "_No attributed dialogue found yet. Try `Auto` strategy for better coverage._"
+
+    header = [
+        "### Dialogue Review (Detected Speakers)",
+        "| Chapter | Speaker | Method | Confidence | Sample |",
+        "|---|---|---|---:|---|",
+    ]
+    if len(rows) >= max_items:
+        rows.append("| ... | ... | ... | ... | ... |")
+    return "\n".join(header + rows)
+
+
 def parse_pronunciation_table(rows: Any) -> dict[str, str]:
     overrides: dict[str, str] = {}
     if not rows:
@@ -2096,6 +2150,7 @@ def build_ui():
             draft_restore_info_md = gr.Markdown("")
             chapter_list_md = gr.Markdown("")
             chapter_preview_md = gr.Markdown("_No chapter preview yet._")
+            dialogue_review_md = gr.Markdown("_No dialogue review yet._")
             time_estimate = gr.Markdown("")
 
         with gr.Tab("Voices"):
@@ -2312,6 +2367,7 @@ def build_ui():
                     "",
                     "_No data yet._",
                     "_No chapter preview yet._",
+                    "_No dialogue review yet._",
                     [],
                     [],
                     "",
@@ -2328,6 +2384,7 @@ def build_ui():
                     "",
                     "_No data yet._",
                     "_No chapter preview yet._",
+                    "_No dialogue review yet._",
                     [],
                     [],
                     "",
@@ -2346,6 +2403,7 @@ def build_ui():
                         "",
                         "_No data yet._",
                         "_No chapter preview yet._",
+                        "_No dialogue review yet._",
                         [],
                         [],
                         "",
@@ -2369,6 +2427,7 @@ def build_ui():
                     cloud_url = str(manifest.get("runtime", {}).get("cloud_backup", {}).get("url", "") or "")
                 chapter_rows = build_chapter_table(manifest)
                 preview_md = build_chapter_preview_markdown(manifest)
+                dialogue_md = build_dialogue_review_markdown(manifest)
                 char_rows = build_character_table(manifest)
                 pron_rows_out = pronunciation_overrides_to_rows(manifest.get("settings", {}).get("pronunciation_overrides", {}))
                 estimate = int(manifest.get("progress", {}).get("estimated_remaining_seconds", 0))
@@ -2395,6 +2454,7 @@ def build_ui():
                     parse_msg,
                     rows_to_markdown(["Chapter", "Segments", "Characters Found", "Cache Status"], chapter_rows),
                     preview_md,
+                    dialogue_md,
                     char_rows,
                     pron_rows_out,
                     f"Estimated generation time: **~{estimate // 60} min {estimate % 60}s**",
@@ -2410,6 +2470,7 @@ def build_ui():
                     "",
                     "_No data yet._",
                     "_No chapter preview yet._",
+                    "_No dialogue review yet._",
                     [],
                     [],
                     "",
@@ -2496,6 +2557,7 @@ def build_ui():
                     "Parse already running. Please wait for completion.",
                     "_No data yet._",
                     "_No chapter preview yet._",
+                    "_No dialogue review yet._",
                     [],
                     [],
                     "",
@@ -2570,6 +2632,7 @@ def build_ui():
                         cloud_warning = f" Cloud backup warning: {exc}"
                 chapter_rows = build_chapter_table(manifest)
                 preview_md = build_chapter_preview_markdown(manifest)
+                dialogue_md = build_dialogue_review_markdown(manifest)
                 char_rows = build_character_table(manifest)
                 pron_rows_out = pronunciation_overrides_to_rows(manifest.get("settings", {}).get("pronunciation_overrides", {}))
                 estimate = int(manifest["progress"].get("estimated_remaining_seconds", 0))
@@ -2594,6 +2657,7 @@ def build_ui():
                     status,
                     rows_to_markdown(["Chapter", "Segments", "Characters Found", "Cache Status"], chapter_rows),
                     preview_md,
+                    dialogue_md,
                     char_rows,
                     pron_rows_out,
                     f"Estimated generation time: **~{estimate // 60} min {estimate % 60}s**",
@@ -2607,6 +2671,7 @@ def build_ui():
                     format_runtime_error("Parse failed", exc),
                     "_No data yet._",
                     "_No chapter preview yet._",
+                    "_No dialogue review yet._",
                     [],
                     [],
                     "",
@@ -2870,6 +2935,7 @@ def build_ui():
                     "",
                     "_No data yet._",
                     "_No chapter preview yet._",
+                    "_No dialogue review yet._",
                     [],
                     [],
                     "",
@@ -2892,6 +2958,7 @@ def build_ui():
                 save_manifest(manifest, manifest_path)
                 chapter_rows = build_chapter_table(manifest)
                 preview_md = build_chapter_preview_markdown(manifest)
+                dialogue_md = build_dialogue_review_markdown(manifest)
                 char_rows = build_character_table(manifest)
                 pron_rows_out = pronunciation_overrides_to_rows(manifest.get("settings", {}).get("pronunciation_overrides", {}))
                 estimate = int(manifest.get("progress", {}).get("estimated_remaining_seconds", 0))
@@ -2909,6 +2976,7 @@ def build_ui():
                     parse_msg,
                     rows_to_markdown(["Chapter", "Segments", "Characters Found", "Cache Status"], chapter_rows),
                     preview_md,
+                    dialogue_md,
                     char_rows,
                     pron_rows_out,
                     f"Estimated generation time: **~{estimate // 60} min {estimate % 60}s**",
@@ -2922,6 +2990,7 @@ def build_ui():
                     "",
                     "_No data yet._",
                     "_No chapter preview yet._",
+                    "_No dialogue review yet._",
                     [],
                     [],
                     "",
@@ -3219,6 +3288,7 @@ def build_ui():
                 parse_status,
                 chapter_list_md,
                 chapter_preview_md,
+                dialogue_review_md,
                 character_table,
                 pronunciation_table,
                 time_estimate,
@@ -3238,6 +3308,7 @@ def build_ui():
                 parse_status,
                 chapter_list_md,
                 chapter_preview_md,
+                dialogue_review_md,
                 character_table,
                 pronunciation_table,
                 time_estimate,
@@ -3305,6 +3376,7 @@ def build_ui():
                 parse_status,
                 chapter_list_md,
                 chapter_preview_md,
+                dialogue_review_md,
                 character_table,
                 pronunciation_table,
                 time_estimate,
@@ -3405,6 +3477,7 @@ def build_ui():
                 parse_status,
                 chapter_list_md,
                 chapter_preview_md,
+                dialogue_review_md,
                 character_table,
                 pronunciation_table,
                 time_estimate,
