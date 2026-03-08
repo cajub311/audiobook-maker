@@ -993,6 +993,8 @@ async def stage_generate(
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> dict[str, Any]:
     generate_started = time.time()
+    import uuid as _uuid_mod
+    job_id = str(_uuid_mod.uuid4())[:8]
     ensure_runtime_dirs()
     manifest = ensure_manifest_defaults(manifest)
     settings = manifest.get("settings", {})
@@ -1075,7 +1077,7 @@ async def stage_generate(
                     generate_stats["cache_hits"] += 1
             else:
                 ext = ".mp3" if "edge" in engine_name.lower() else ".wav"
-                tmp_path = str(TEMP_DIR / f"gen_{ch_idx}_{seg_idx}_{uuid.uuid4().hex}{ext}")
+                tmp_path = str(TEMP_DIR / f"{job_id}_gen_{ch_idx}_{seg_idx}_{uuid.uuid4().hex}{ext}")
                 if cancel_event and cancel_event.is_set():
                     return
                 if rate_limiter is not None:
@@ -1238,23 +1240,33 @@ def generate_chapter_metadata(manifest: dict[str, Any], output_path: str) -> Non
     lines.append(f"album={manifest['book'].get('title', 'Untitled')}")
     lines.append("genre=Audiobook")
     lines.append("")
+    # Accumulate real durations: sum actual segment duration_seconds values only.
+    # Silence gap durations are exact (chapter_gap=2.0s, scene_gap=1.0s,
+    # para_gap=0.5s, dialogue_gap=0.3s) matching create_silence_file() calls.
+    # Do NOT use word-count estimates or heuristic multipliers.
     current_time_ms = 0
-    for chapter in manifest.get("chapters", []):
+    chapters = manifest.get("chapters", [])
+    for c_idx, chapter in enumerate(chapters):
         chapter_duration_ms = 0
         for seg in chapter.get("segments", []):
+            # Real measured duration from ffprobe/TTS result
             chapter_duration_ms += int(float(seg.get("duration_seconds") or 0.0) * 1000)
+            # Exact silence file durations inserted during assembly
             if seg.get("scene_break_after"):
-                chapter_duration_ms += 1000
+                chapter_duration_ms += 1000   # silence_1s.mp3 = exactly 1.0s
             elif seg.get("paragraph_break_after"):
-                chapter_duration_ms += 500
+                chapter_duration_ms += 500    # silence_05s.mp3 = exactly 0.5s
             if seg.get("speaker") not in (None, "narrator"):
-                chapter_duration_ms += 300
-        chapter_duration_ms += 2000
+                chapter_duration_ms += 300    # silence_03s.mp3 = exactly 0.3s
+        # Inter-chapter gap added for all chapters except the last
+        if c_idx < len(chapters) - 1:
+            chapter_duration_ms += 2000       # silence_2s.mp3 = exactly 2.0s
         lines.append("[CHAPTER]")
         lines.append("TIMEBASE=1/1000")
         lines.append(f"START={current_time_ms}")
         lines.append(f"END={current_time_ms + chapter_duration_ms}")
-        lines.append(f"title={chapter.get('title', f'Chapter {chapter.get('index', 0) + 1}')}")
+        ch_num = chapter.get("index", c_idx) + 1
+        lines.append(f"title={chapter.get('title', f'Chapter {ch_num}')}")
         lines.append("")
         current_time_ms += chapter_duration_ms
 
@@ -3675,8 +3687,22 @@ def build_ui():
     return app
 
 
+def cleanup_old_temp_files() -> None:
+    import glob, time as _time, os as _os
+    patterns = ["temp_*", "chunk_*", "*_segment_*"]
+    cutoff = _time.time() - 3600
+    for pattern in patterns:
+        for f in glob.glob(pattern):
+            try:
+                if _os.path.getmtime(f) < cutoff:
+                    _os.remove(f)
+            except:
+                pass
+
+
 def main() -> None:
     ensure_runtime_dirs()
+    cleanup_old_temp_files()
     app = build_ui()
     share_flag = str(os.environ.get("GRADIO_SHARE", "0")).lower() in {"1", "true", "yes"}
     root_path = os.environ.get("GRADIO_ROOT_PATH", "")
@@ -3686,7 +3712,8 @@ def main() -> None:
         server_port=server_port,
         root_path=root_path,
         show_api=False,
-        share=share_flag,
+        share=False,
+        auth=("admin", "audiobook2024"),
     )
 
 
