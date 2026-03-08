@@ -457,7 +457,11 @@ def estimate_generation_seconds(total_chars: int, engine_name: str) -> int:
 def run_coro_sync(coro: Any) -> Any:
     try:
         return asyncio.run(coro)
-    except RuntimeError:
+    except RuntimeError as exc:
+        # Only retry with a new loop for event-loop-already-running errors.
+        # Any other RuntimeError (network failure, ffmpeg crash, etc.) must propagate.
+        if "event loop" not in str(exc).lower() and "no current event loop" not in str(exc).lower():
+            raise
         loop = asyncio.new_event_loop()
         try:
             return loop.run_until_complete(coro)
@@ -1530,14 +1534,14 @@ def build_chapter_progress(manifest: dict[str, Any]) -> list[list[Any]]:
 def manifest_has_generation_errors(manifest: dict[str, Any]) -> bool:
     for chapter in manifest.get("chapters", []):
         for segment in chapter.get("segments", []):
-            if segment.get("status") == "error":
+            status = segment.get("status", "pending")
+            if status == "error":
                 return True
-            if segment.get("status") == "cached":
+            if status == "cached":
                 cache_file = str(segment.get("cache_file", "") or "")
                 if not cache_file or not Path(cache_file).exists():
                     return True
-            elif not segment.get("cache_file"):
-                return True
+            # Do NOT flag pending/generating segments as errors — they are legitimately in-progress
     return False
 
 
@@ -2108,6 +2112,10 @@ def build_ui():
     )
 
     with gr.Blocks(title="Audiobook Creator V7", theme=theme, css=MOBILE_CSS) as app:
+        # CSS-01: inject viewport-fit=cover so safe-area-inset-* works on iOS Safari
+        gr.HTML(
+            '<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">'
+        )
         manifest_path_state = gr.State("")
         cloud_url_state = gr.State("")
         project_map_state = gr.State({})
@@ -2164,8 +2172,12 @@ def build_ui():
                 window.__abmMobileAction = function (action) {
                   if (navigator.vibrate) navigator.vibrate(20);
                   if (action === 'generate') {
-                    document.querySelector('#quick-generate-btn button')?.click();
-                    window.__abmToast('Starting audiobook generation...');
+                    const tryClick = (attempts) => {
+                      const btn = document.querySelector('#quick-generate-btn button');
+                      if (btn) { btn.click(); window.__abmToast('Starting audiobook generation...'); }
+                      else if (attempts > 0) { setTimeout(() => tryClick(attempts - 1), 200); }
+                    };
+                    tryClick(10);
                     return;
                   }
                   if (action === 'resume') {
@@ -3215,8 +3227,12 @@ def build_ui():
                     )
                 )
                 if cancel_event.is_set():
+                    try:
+                        save_manifest(manifest, manifest_path)  # persist partial progress for resume
+                    except Exception:
+                        pass
                     return (
-                        "🟡 Generation cancelled. You can tap **Create Audiobook** to continue anytime.",
+                        "🟡 Generation cancelled. Partial progress saved — tap **Create Audiobook** to resume.",
                         runtime_state_badge("cancelled", "Stopped by user"),
                         preview_md,
                         None,
@@ -3225,10 +3241,12 @@ def build_ui():
                     )
                 if manifest_has_generation_errors(manifest):
                     progress(0.55, desc="🔁 Cloud voice failed, retrying with offline voice")
-                    fallback_settings = manifest.get("settings", {})
+                    # Shallow-copy settings to avoid corrupting the original manifest on disk
+                    fallback_settings = dict(manifest.get("settings", {}))
                     fallback_settings["tts_engine"] = "kokoro"
                     fallback_settings["narrator_voice"] = "af_sarah"
                     fallback_settings["dialogue_voice"] = "bf_emma"
+                    manifest = dict(manifest)
                     manifest["settings"] = fallback_settings
                     for chapter in manifest.get("chapters", []):
                         for segment in chapter.get("segments", []):
@@ -3621,7 +3639,15 @@ def main() -> None:
     ensure_runtime_dirs()
     app = build_ui()
     share_flag = str(os.environ.get("GRADIO_SHARE", "0")).lower() in {"1", "true", "yes"}
-    app.launch(server_name="0.0.0.0", server_port=7860, show_api=False, share=share_flag)
+    root_path = os.environ.get("GRADIO_ROOT_PATH", "")
+    server_port = int(os.environ.get("GRADIO_SERVER_PORT", "7860"))
+    app.launch(
+        server_name="0.0.0.0",
+        server_port=server_port,
+        root_path=root_path,
+        show_api=False,
+        share=share_flag,
+    )
 
 
 if __name__ == "__main__":
