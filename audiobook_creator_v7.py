@@ -2001,7 +2001,7 @@ input, textarea, select {font-size: 16px !important;}
   left: 10px;
   right: 10px;
   bottom: calc(8px + env(safe-area-inset-bottom));
-  z-index: 40;
+  z-index: 1000;
   padding: 8px;
   border-radius: 14px;
   background: rgba(15, 23, 42, 0.85);
@@ -2066,7 +2066,7 @@ input, textarea, select {font-size: 16px !important;}
     padding: 10px !important;
     padding-bottom: calc(96px + env(safe-area-inset-bottom)) !important;
   }
-  .gr-row {flex-direction: column !important; gap: 10px !important;}
+  .gr-row:not(.keep-row) {flex-direction: column !important; gap: 10px !important;}
   .gr-button {width: 100% !important;}
   .bottom-mobile-nav .nav-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2165,7 +2165,7 @@ def build_ui():
                 window.__abmToast = function (message) {
                   const toast = document.createElement('div');
                   toast.textContent = message;
-                  toast.style.cssText = 'position:fixed;left:12px;right:12px;bottom:84px;padding:12px 14px;border-radius:10px;background:rgba(15,23,42,0.92);color:#e2e8f0;border:1px solid rgba(148,163,184,0.35);z-index:60;font-size:13px;text-align:center;';
+                  toast.style.cssText = 'position:fixed;left:12px;right:12px;bottom:84px;padding:12px 14px;border-radius:10px;background:rgba(15,23,42,0.92);color:#e2e8f0;border:1px solid rgba(148,163,184,0.35);z-index:1001;font-size:13px;text-align:center;';
                   document.body.appendChild(toast);
                   window.setTimeout(() => toast.remove(), 1800);
                 };
@@ -2206,7 +2206,8 @@ def build_ui():
             )
             quick_text_input = gr.Textbox(
                 label="Text input",
-                lines=15,
+                lines=6,
+                max_lines=20,
                 placeholder="Paste your story/article/book text here, then tap Create Audiobook.",
                 visible=True,
             )
@@ -2284,7 +2285,7 @@ def build_ui():
             dialogue_audio = gr.Audio(label="Dialogue Preview", visible=True)
             gr.Markdown("### Voice Browser")
             gr.Markdown("Preview any listed voice with a dedicated button.")
-            with gr.Row():
+            with gr.Row(elem_classes=["keep-row"]):
                 voice_prev_page_btn = gr.Button("Previous", variant="secondary", scale=1)
                 voice_page_label = gr.Markdown("Voice page 1/1 · 0 voices", scale=2)
                 voice_next_page_btn = gr.Button("Next", variant="secondary", scale=1)
