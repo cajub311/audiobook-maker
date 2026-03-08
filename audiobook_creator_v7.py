@@ -1835,13 +1835,16 @@ def resolve_source_inputs(
     text: str,
     fallback_file_path: str = "",
 ) -> tuple[Optional[str], str, str]:
-    mode = (input_mode or "file").lower()
+    mode = (input_mode or "file").strip().lower()
     file_path = getattr(file_obj, "name", None) if file_obj else None
     url_value = (url or "").strip()
     text_value = (text or "").strip()
-    if "url" in mode:
+    # Explicit set comparison -- immune to label renames that break substring matching
+    _URL_MODES = {"url"}
+    _TEXT_MODES = {"paste text", "paste", "text"}
+    if mode in _URL_MODES:
         return None, url_value, ""
-    if "text" in mode or "paste" in mode:
+    if mode in _TEXT_MODES:
         return None, "", text_value
     return (file_path or existing_path_or_empty(fallback_file_path) or None), "", ""
 
@@ -3136,7 +3139,7 @@ def build_ui():
             progress=gr.Progress(),
         ):
             if quick_inflight.is_set():
-                return (
+                yield (
                     "🟣 Processing in progress. Please wait for completion or tap Cancel.",
                     runtime_state_badge("generating", "Quick run already active"),
                     "_No chapter preview yet._",
@@ -3144,8 +3147,18 @@ def build_ui():
                     None,
                     "",
                 )
+                return
             quick_inflight.set()
             cancel_event.clear()
+            # Yield an immediate "starting" state so the mobile UI updates right away
+            yield (
+                "⏳ Starting… preparing your audiobook.",
+                runtime_state_badge("generating", "Initialising"),
+                "_No chapter preview yet._",
+                None,
+                None,
+                "",
+            )
             try:
                 input_path, parsed_url, parsed_text = resolve_source_inputs(
                     input_mode_label,
@@ -3155,7 +3168,7 @@ def build_ui():
                     fallback_file_path=remembered_quick_file,
                 )
                 if not input_path and not parsed_url and not parsed_text:
-                    return (
+                    yield (
                         "⚪ Ready. Paste text, enter a URL, or choose a file, then tap **Create Audiobook**.",
                         runtime_state_badge("idle", "Waiting for input"),
                         "_No chapter preview yet._",
@@ -3163,6 +3176,7 @@ def build_ui():
                         None,
                         "",
                     )
+                    return
                 primary_engine = "edge-tts"
                 selected_voice = str(quick_voice or "en-US-GuyNeural")
                 narrator = selected_voice
@@ -3187,6 +3201,14 @@ def build_ui():
                     "free_cloud_manifest_url": "",
                     "tts_min_request_interval_s": DEFAULT_TTS_MIN_REQUEST_INTERVAL_S,
                 }
+                yield (
+                    "📖 Parsing source…",
+                    runtime_state_badge("generating", "Parsing"),
+                    "_No chapter preview yet._",
+                    None,
+                    None,
+                    "",
+                )
                 progress(0.01, desc="📖 Parsing source")
                 run_started = time.time()
 
@@ -3208,6 +3230,14 @@ def build_ui():
                 )
                 preview_md = build_chapter_preview_markdown(manifest)
                 remember_last_project(project_id=f"local::{manifest_path}", manifest_path=manifest_path, cloud_url="")
+                yield (
+                    "🎵 Generating audio… this may take several minutes.",
+                    runtime_state_badge("generating", "Generating audio"),
+                    preview_md,
+                    None,
+                    None,
+                    "",
+                )
 
                 def progress_cb(done: int, total: int, desc: str) -> None:
                     elapsed = max(0.001, time.time() - run_started)
@@ -3232,7 +3262,7 @@ def build_ui():
                         save_manifest(manifest, manifest_path)  # persist partial progress for resume
                     except Exception:
                         pass
-                    return (
+                    yield (
                         "🟡 Generation cancelled. Partial progress saved — tap **Create Audiobook** to resume.",
                         runtime_state_badge("cancelled", "Stopped by user"),
                         preview_md,
@@ -3240,6 +3270,7 @@ def build_ui():
                         None,
                         "",
                     )
+                    return
                 if manifest_has_generation_errors(manifest):
                     progress(0.55, desc="🔁 Cloud voice failed, retrying with offline voice")
                     # Shallow-copy settings to avoid corrupting the original manifest on disk
@@ -3273,6 +3304,14 @@ def build_ui():
                     if manifest_has_generation_errors(manifest):
                         raise RuntimeError("Generation failed with both edge-tts and kokoro fallback.")
 
+                yield (
+                    "📦 Assembling audiobook…",
+                    runtime_state_badge("generating", "Assembling"),
+                    preview_md,
+                    None,
+                    None,
+                    "",
+                )
                 progress(0.92, desc="📦 Assembling audiobook")
                 output_path = stage_assemble(
                     manifest=manifest,
@@ -3319,7 +3358,7 @@ def build_ui():
                     status += f"\n- 📈 Cache hit rate: **{hit_rate:.1f}%**"
                 if cloud_backup_warning:
                     status += f"\n{cloud_backup_warning}"
-                return (
+                yield (
                     status,
                     runtime_state_badge("completed", "Quick flow complete" if not cloud_backup_warning else "Quick flow complete (backup warning)"),
                     preview_md,
@@ -3329,7 +3368,7 @@ def build_ui():
                 )
             except Exception as exc:
                 logger.exception("Quick generate UI action failed")
-                return (
+                yield (
                     format_quick_mode_error(exc),
                     runtime_state_badge("failed", "Quick flow failed"),
                     "_No chapter preview yet._",
