@@ -6,5 +6,6 @@ beautifulsoup4
 trafilatura
 pydub
 kokoro-onnx
+kokoro
 soundfile
 spacy
