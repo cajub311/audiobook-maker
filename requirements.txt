@@ -1,4 +1,4 @@
-gradio
+gradio>=6.9.0
 edge-tts
 pdfplumber
 ebooklib
