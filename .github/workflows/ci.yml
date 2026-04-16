@@ -33,3 +33,6 @@ jobs:
 
       - name: API health smoke test
         run: node -e "const h=require('./api/health'); const r={setHeader(){},status(){return this},json(v){if(v.status!=='ok'){process.exit(1)}; console.log('ok')}}; h({},r)"
+
+      - name: Browser player engine smoke test
+        run: node tests/player.test.mjs
