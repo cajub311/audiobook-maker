@@ -1,251 +1,863 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Audiobook Maker - Web Demo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#4f46e5" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <title>Audiobook Player</title>
     <style>
-      :root { color-scheme: dark; }
-      body {
-        margin: 0;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        background: #0b1020;
-        color: #e2e8f0;
+      :root {
+        color-scheme: dark light;
+        --bg: #0b1020;
+        --bg-elev: rgba(15, 23, 42, 0.78);
+        --border: rgba(148, 163, 184, 0.22);
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --brand: #4f46e5;
+        --brand-500: #6366f1;
+        --accent: #22d3ee;
+        --success: #10b981;
+        --danger: #ef4444;
       }
-      main { max-width: 900px; margin: 0 auto; padding: 16px 16px 96px; }
+      html.light {
+        color-scheme: light;
+        --bg: #f8fafc;
+        --bg-elev: #ffffff;
+        --border: rgba(15, 23, 42, 0.12);
+        --text: #0f172a;
+        --muted: #475569;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        line-height: 1.5;
+        min-height: 100vh;
+        padding: max(0px, env(safe-area-inset-top)) max(0px, env(safe-area-inset-right))
+          max(0px, env(safe-area-inset-bottom)) max(0px, env(safe-area-inset-left));
+      }
+      main { max-width: 980px; margin: 0 auto; padding: 16px 16px 140px; }
+      a.back {
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.85rem;
+      }
+      header.page {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+      header.page h1 {
+        font-size: 1.15rem;
+        margin: 0;
+        font-weight: 800;
+      }
       .card {
-        background: rgba(15, 23, 42, 0.75);
-        border: 1px solid rgba(148, 163, 184, 0.2);
-        border-radius: 14px;
+        background: var(--bg-elev);
+        border: 1px solid var(--border);
+        border-radius: 16px;
         padding: 14px;
         margin-bottom: 12px;
       }
+      label.field {
+        display: block;
+        font-size: 0.85rem;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
       textarea {
         width: 100%;
-        min-height: 220px;
+        min-height: 200px;
         border-radius: 12px;
-        border: 1px solid rgba(148, 163, 184, 0.3);
-        background: rgba(15, 23, 42, 0.7);
-        color: #e2e8f0;
-        padding: 10px;
-        box-sizing: border-box;
+        border: 1px solid var(--border);
+        background: rgba(15, 23, 42, 0.5);
+        color: var(--text);
+        padding: 12px;
+        font-size: 0.95rem;
+        resize: vertical;
       }
-      .grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      button {
-        min-height: 52px;
-        border: 0;
+      html.light textarea { background: #fff; }
+      input[type="file"], input[type="url"], input[type="number"], select, input[type="range"] {
+        width: 100%;
+        padding: 10px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: rgba(15, 23, 42, 0.5);
+        color: var(--text);
+        font-size: 0.95rem;
+      }
+      html.light input, html.light select { background: #fff; }
+
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .row.ctrl { gap: 10px; align-items: stretch; }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-height: 46px;
+        padding: 10px 16px;
         border-radius: 12px;
         font-weight: 700;
+        font-size: 0.92rem;
         cursor: pointer;
+        border: 0;
+        color: #fff;
+        background: var(--brand);
+        transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
       }
-      .primary { background: #4f46e5; color: #fff; }
-      .secondary { background: #1e293b; color: #e2e8f0; border: 1px solid rgba(148, 163, 184, 0.25); }
-      .status {
+      .btn:hover { background: var(--brand-500); }
+      .btn:active { transform: scale(0.98); }
+      .btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+      .btn-secondary { background: rgba(148, 163, 184, 0.18); color: var(--text); }
+      .btn-secondary:hover { background: rgba(148, 163, 184, 0.28); }
+      .btn-danger { background: var(--danger); }
+
+      .player-card {
         position: sticky;
         top: 0;
-        z-index: 20;
-        background: linear-gradient(135deg, #4f46e5, #7c3aed);
+        z-index: 30;
+        background: linear-gradient(135deg, rgba(79, 70, 229, 0.95), rgba(124, 58, 237, 0.92), rgba(6, 182, 212, 0.88));
+        color: #fff;
+        border: 0;
+        border-radius: 20px;
+        padding: 16px;
+        box-shadow: 0 12px 30px rgba(2, 6, 23, 0.35);
+      }
+      .player-card h2 { margin: 0; font-size: 1rem; font-weight: 800; }
+      .player-card p { margin: 4px 0 0; opacity: 0.92; font-size: 0.85rem; }
+      .progress-track {
+        position: relative;
+        height: 8px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.25);
+        margin: 12px 0 6px;
+        overflow: hidden;
+        cursor: pointer;
+      }
+      .progress-fill {
+        position: absolute;
+        top: 0; left: 0; bottom: 0;
+        width: 0%;
+        background: #fff;
+        border-radius: 999px;
+        transition: width 0.2s ease;
+      }
+      .player-meta {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.75rem;
+        opacity: 0.9;
+      }
+      .ctrl-grid {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .ctrl-grid .btn { min-height: 46px; padding: 8px; background: rgba(255, 255, 255, 0.18); }
+      .ctrl-grid .btn.primary { background: #fff; color: #4f46e5; }
+      @media (max-width: 520px) {
+        .ctrl-grid { grid-template-columns: repeat(5, 1fr); }
+        .ctrl-grid .btn { font-size: 0.8rem; }
+      }
+
+      .reader {
+        max-height: 360px;
+        overflow: auto;
+        padding: 8px 2px;
+        font-size: 1rem;
+        line-height: 1.75;
+      }
+      .reader .chapter {
+        margin-bottom: 18px;
+      }
+      .reader .chapter h3 {
+        font-size: 1rem;
+        margin: 0 0 6px;
+        color: var(--muted);
+        letter-spacing: 0.01em;
+        text-transform: uppercase;
+        font-weight: 700;
+      }
+      .reader .sentence {
+        display: inline;
+        padding: 1px 2px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .reader .sentence:hover { background: rgba(99, 102, 241, 0.2); }
+      .reader .sentence.active {
+        background: rgba(34, 211, 238, 0.25);
+        box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.35);
+      }
+      .reader .sentence.active .word-active {
+        background: rgba(250, 204, 21, 0.45);
+        color: var(--text);
+        border-radius: 3px;
+        padding: 0 2px;
+      }
+
+      .chapter-list {
+        max-height: 220px;
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .chapter-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 10px;
         border-radius: 10px;
-        padding: 10px;
-        margin-bottom: 12px;
+        border: 1px solid var(--border);
+        background: rgba(15, 23, 42, 0.35);
+        cursor: pointer;
+        font-size: 0.88rem;
       }
-      @media (max-width: 768px) {
-        .grid { grid-template-columns: 1fr; }
+      .chapter-item:hover { background: rgba(79, 70, 229, 0.2); }
+      .chapter-item.active {
+        background: rgba(79, 70, 229, 0.32);
+        border-color: rgba(99, 102, 241, 0.7);
       }
+      .chapter-item small { color: var(--muted); }
+      html.light .chapter-item { background: rgba(241, 245, 249, 0.8); }
+
+      .ctrl-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 10px;
+      }
+      .badge {
+        display: inline-block;
+        background: rgba(34, 211, 238, 0.18);
+        color: #67e8f9;
+        padding: 2px 10px;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 700;
+      }
+
+      .status-line {
+        margin-top: 6px;
+        font-size: 0.82rem;
+        color: var(--muted);
+      }
+
+      .hidden { display: none !important; }
     </style>
   </head>
   <body>
     <main>
-      <h1>Audiobook Maker Web Demo</h1>
-      <p>Demo mode creates a short preview (about 5 minutes max) directly in browser. Full generation still uses Python app.</p>
+      <header class="page">
+        <div>
+          <a class="back" href="/">← Launcher</a>
+          <h1>Audiobook Player</h1>
+        </div>
+        <span id="engine-badge" class="badge">Browser voice</span>
+      </header>
 
-      <div id="status" class="status">Ready.</div>
-
-      <section class="card">
-        <label for="input"><strong>Paste text</strong></label>
-        <input id="file-input" type="file" accept=".txt,text/plain" style="margin: 8px 0 10px; display: block;" />
-        <textarea id="input" placeholder="Paste text for a short browser demo..."></textarea>
-        <p id="stats" style="margin: 8px 0 0; font-size: 13px; opacity: 0.9;">Words: 0 · Est: 0m 0s</p>
-      </section>
-
-      <section class="card">
-        <div class="grid">
-          <button id="demo-generate" class="primary">Generate 5-minute demo</button>
-          <button id="demo-speak" class="secondary">Play in browser voice</button>
-          <button id="demo-share" class="secondary">Share demo text</button>
-          <button id="demo-save" class="secondary">Save draft locally</button>
-          <button id="demo-download" class="secondary">Download demo text</button>
+      <section class="card" aria-label="Source selector">
+        <label class="field" for="input">Paste text, drop a .txt file, or fetch a URL</label>
+        <textarea id="input" placeholder="Paste a chapter, article, or full book text here..."></textarea>
+        <p id="stats" class="status-line">Words: 0 · Chars: 0 · Estimated listen time: 0m</p>
+        <div class="ctrl-row" style="margin-top: 10px;">
+          <div>
+            <label class="field" for="file-input">Import .txt file</label>
+            <input id="file-input" type="file" accept=".txt,text/plain" />
+          </div>
+          <div>
+            <label class="field" for="url-input">Fetch URL (plain text)</label>
+            <div style="display: flex; gap: 6px;">
+              <input id="url-input" type="url" placeholder="https://example.com/chapter.txt" />
+              <button id="fetch-url" class="btn btn-secondary" type="button">Fetch</button>
+            </div>
+          </div>
+          <div>
+            <label class="field" for="demo-load">Demo text</label>
+            <button id="demo-load" class="btn btn-secondary" type="button">Load sample chapter</button>
+          </div>
+        </div>
+        <div class="row" style="margin-top: 12px;">
+          <button id="build-book" class="btn" type="button">Build audiobook</button>
+          <button id="save-draft" class="btn btn-secondary" type="button">Save draft</button>
+          <button id="download-text" class="btn btn-secondary" type="button">Download .txt</button>
+          <button id="share-text" class="btn btn-secondary" type="button">Share</button>
+          <button id="clear-text" class="btn btn-secondary" type="button">Clear</button>
         </div>
       </section>
 
-      <section class="card">
-        <h3>Output</h3>
-        <pre id="output">No demo generated yet.</pre>
+      <section id="player-shell" class="card player-card hidden" aria-label="Audiobook player">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+          <div>
+            <h2 id="now-playing-title">Ready</h2>
+            <p id="now-playing-sub">Tap Build audiobook to begin.</p>
+          </div>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+            <span id="player-state" class="badge" style="background: rgba(255,255,255,0.2); color:#fff;">idle</span>
+          </div>
+        </div>
+        <div id="progress" class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0">
+          <div id="progress-fill" class="progress-fill"></div>
+        </div>
+        <div class="player-meta">
+          <span id="elapsed">0:00</span>
+          <span id="remaining">-0:00</span>
+        </div>
+        <div class="ctrl-grid" role="group" aria-label="Playback controls">
+          <button id="prev-chapter" class="btn" aria-label="Previous chapter">⏮</button>
+          <button id="prev-sentence" class="btn" aria-label="Previous sentence">⏪</button>
+          <button id="play-pause" class="btn primary" aria-label="Play or pause">▶ Play</button>
+          <button id="next-sentence" class="btn" aria-label="Next sentence">⏩</button>
+          <button id="next-chapter" class="btn" aria-label="Next chapter">⏭</button>
+        </div>
+      </section>
+
+      <section id="reader-card" class="card hidden" aria-label="Reader">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <h3 style="margin: 0; font-size: 1rem; font-weight: 700;">Reader</h3>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted);">
+            <input id="follow-toggle" type="checkbox" checked /> Auto-scroll
+          </label>
+        </div>
+        <div id="reader" class="reader" aria-live="polite"></div>
+      </section>
+
+      <section id="chapters-card" class="card hidden" aria-label="Chapter list">
+        <h3 style="margin: 0 0 8px; font-size: 1rem; font-weight: 700;">Chapters</h3>
+        <div id="chapter-list" class="chapter-list"></div>
+      </section>
+
+      <section class="card" aria-label="Voice and speed">
+        <h3 style="margin: 0 0 6px; font-size: 1rem; font-weight: 700;">Voice &amp; playback</h3>
+        <div class="ctrl-row">
+          <div>
+            <label class="field" for="voice-select">Voice</label>
+            <select id="voice-select"><option value="">System default</option></select>
+          </div>
+          <div>
+            <label class="field" for="rate-input">Speed: <span id="rate-label">1.00×</span></label>
+            <input id="rate-input" type="range" min="0.5" max="2" step="0.05" value="1" />
+          </div>
+          <div>
+            <label class="field" for="pitch-input">Pitch: <span id="pitch-label">1.00</span></label>
+            <input id="pitch-input" type="range" min="0" max="2" step="0.05" value="1" />
+          </div>
+          <div>
+            <label class="field" for="volume-input">Volume: <span id="volume-label">100%</span></label>
+            <input id="volume-input" type="range" min="0" max="1" step="0.05" value="1" />
+          </div>
+        </div>
+      </section>
+
+      <section class="card" aria-label="About">
+        <h3 style="margin: 0 0 6px; font-size: 1rem; font-weight: 700;">About this player</h3>
+        <p class="status-line" style="margin: 0;">
+          Plays entirely in your browser using the built-in Web Speech API &mdash; no upload, no account.
+          For long MP3 / M4B exports, run the Python app (see launcher Quick Start). Your text is saved locally so a refresh won't lose your place.
+        </p>
       </section>
     </main>
 
     <script type="module">
-      import { makeDemoProject } from "/web/processor.js";
+      import { AudiobookPlayer } from "/web/player.js";
       import { loadDraft, saveDraft } from "/web/storage.js";
-      import { pollCloudProcess, startCloudProcess } from "/web/api-client.js";
 
-      const input = document.getElementById("input");
-      const fileInput = document.getElementById("file-input");
-      const status = document.getElementById("status");
-      const output = document.getElementById("output");
-      const stats = document.getElementById("stats");
-      const generateBtn = document.getElementById("demo-generate");
-      let currentDemo = null;
-      let isGenerating = false;
-      const generateLabelIdle = "Generate 5-minute demo";
+      const SAMPLE_TEXT = `Chapter 1: The Bright Sessions\n\nIt was raining the afternoon everything changed. Mara had always thought of rain as punctuation - a small break between the long, long sentences of her life. She was thirteen years old and she was absolutely certain she was about to become ordinary.\n\nThen her father came home carrying a dusty wooden box and everything she thought she knew stopped being true.\n\nChapter 2: The Library at Dawn\n\nThe library at dawn was the only place that still felt safe. Mara pulled her coat tight, stepped through the side door, and breathed in the old-book smell that always steadied her.\n\n"Over here," whispered Jonah from the history aisle. "You have to see this."`;
 
-      const setStatus = (text) => { status.textContent = text; };
-      const setGeneratingState = (busy) => {
-        isGenerating = !!busy;
-        generateBtn.disabled = !!busy;
-        generateBtn.textContent = busy ? "Generating..." : generateLabelIdle;
-        generateBtn.setAttribute("aria-busy", busy ? "true" : "false");
+      const $ = (sel) => document.querySelector(sel);
+      const input = $("#input");
+      const fileInput = $("#file-input");
+      const urlInput = $("#url-input");
+      const stats = $("#stats");
+      const reader = $("#reader");
+      const readerCard = $("#reader-card");
+      const chapterList = $("#chapter-list");
+      const chaptersCard = $("#chapters-card");
+      const playerShell = $("#player-shell");
+      const progressFill = $("#progress-fill");
+      const progressBar = $("#progress");
+      const elapsedLabel = $("#elapsed");
+      const remainingLabel = $("#remaining");
+      const playerState = $("#player-state");
+      const nowPlayingTitle = $("#now-playing-title");
+      const nowPlayingSub = $("#now-playing-sub");
+      const playPauseBtn = $("#play-pause");
+      const voiceSelect = $("#voice-select");
+      const rateInput = $("#rate-input");
+      const rateLabel = $("#rate-label");
+      const pitchInput = $("#pitch-input");
+      const pitchLabel = $("#pitch-label");
+      const volumeInput = $("#volume-input");
+      const volumeLabel = $("#volume-label");
+      const followToggle = $("#follow-toggle");
+
+      const player = new AudiobookPlayer();
+
+      const PREFS_KEY = "abm-player-prefs-v1";
+      const POSITION_KEY = "abm-player-position-v1";
+
+      const loadPrefs = () => {
+        try {
+          return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}") || {};
+        } catch (_err) { return {}; }
       };
+      const savePrefs = (patch) => {
+        try {
+          const merged = { ...loadPrefs(), ...patch };
+          localStorage.setItem(PREFS_KEY, JSON.stringify(merged));
+        } catch (_err) {}
+      };
+      const savedPosition = () => {
+        try { return JSON.parse(localStorage.getItem(POSITION_KEY) || "null"); } catch (_err) { return null; }
+      };
+      const writePosition = (pos) => {
+        try { localStorage.setItem(POSITION_KEY, JSON.stringify(pos || null)); } catch (_err) {}
+      };
+
+      const formatTime = (totalSeconds) => {
+        const s = Math.max(0, Math.round(totalSeconds || 0));
+        const m = Math.floor(s / 60);
+        const sec = s % 60;
+        return `${m}:${String(sec).padStart(2, "0")}`;
+      };
+
       const updateStats = () => {
         const text = String(input.value || "").trim();
         const words = text ? text.split(/\s+/).length : 0;
         const chars = text.length;
-        const sec = Math.max(0, Math.round(chars / 28));
+        const sec = Math.max(0, Math.round(chars / 16));
         const min = Math.floor(sec / 60);
-        const rem = sec % 60;
-        stats.textContent = `Words: ${words} · Chars: ${chars} · Est: ${min}m ${rem}s`;
+        stats.textContent = `Words: ${words.toLocaleString()} · Chars: ${chars.toLocaleString()} · Estimated listen time: ${min}m ${sec % 60}s`;
       };
 
+      const renderBook = () => {
+        const book = player.book;
+        if (!book) {
+          reader.innerHTML = "";
+          chapterList.innerHTML = "";
+          readerCard.classList.add("hidden");
+          chaptersCard.classList.add("hidden");
+          playerShell.classList.add("hidden");
+          return;
+        }
+        readerCard.classList.remove("hidden");
+        chaptersCard.classList.remove("hidden");
+        playerShell.classList.remove("hidden");
+
+        reader.innerHTML = book.chapters
+          .map((ch, ci) => {
+            const sentences = ch.sentences
+              .map(
+                (s, si) =>
+                  `<span class="sentence" data-ci="${ci}" data-si="${si}">${escapeHtml(s)} </span>`
+              )
+              .join("");
+            return `<div class="chapter" data-chapter="${ci}"><h3>${escapeHtml(ch.title || `Chapter ${ci + 1}`)}</h3><p>${sentences}</p></div>`;
+          })
+          .join("");
+
+        chapterList.innerHTML = book.chapters
+          .map(
+            (ch, ci) =>
+              `<div class="chapter-item" data-ci="${ci}" role="button" tabindex="0">
+                 <span>${escapeHtml(ch.title || `Chapter ${ci + 1}`)}</span>
+                 <small>${ch.sentences.length} sentences · ${Math.max(1, Math.round(ch.charCount / 16 / 60))}m</small>
+               </div>`
+          )
+          .join("");
+
+        nowPlayingTitle.textContent = book.chapters[0]?.title || "Audiobook";
+        nowPlayingSub.textContent = `${book.chapters.length} chapter${book.chapters.length === 1 ? "" : "s"} · ~${formatTime(book.estimatedSeconds)} total`;
+        remainingLabel.textContent = `-${formatTime(book.estimatedSeconds)}`;
+
+        reader.querySelectorAll(".sentence").forEach((node) => {
+          node.addEventListener("click", () => {
+            const ci = Number(node.dataset.ci);
+            const si = Number(node.dataset.si);
+            player.jumpToSentence(ci, si);
+            player.play();
+          });
+        });
+        chapterList.querySelectorAll(".chapter-item").forEach((node) => {
+          node.addEventListener("click", () => {
+            const ci = Number(node.dataset.ci);
+            player.jumpToChapter(ci);
+            player.play();
+          });
+          node.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              node.click();
+            }
+          });
+        });
+
+        updateActiveHighlights();
+      };
+
+      const clearHighlights = () => {
+        reader.querySelectorAll(".sentence.active").forEach((n) => n.classList.remove("active"));
+      };
+
+      const updateActiveHighlights = () => {
+        const book = player.book;
+        if (!book) return;
+        const ci = player.chapterIndex;
+        const si = player.sentenceIndex;
+        clearHighlights();
+        const active = reader.querySelector(`.sentence[data-ci="${ci}"][data-si="${si}"]`);
+        if (active) {
+          active.classList.add("active");
+          if (followToggle.checked) {
+            active.scrollIntoView({ block: "center", behavior: "smooth" });
+          }
+        }
+        chapterList.querySelectorAll(".chapter-item").forEach((n) => {
+          n.classList.toggle("active", Number(n.dataset.ci) === ci);
+        });
+        const chTitle = book.chapters[ci]?.title;
+        if (chTitle) nowPlayingTitle.textContent = chTitle;
+        nowPlayingSub.textContent = `Chapter ${ci + 1} of ${book.chapters.length} · Sentence ${si + 1} of ${book.chapters[ci]?.sentences.length || 0}`;
+      };
+
+      const updateProgress = (snapshot) => {
+        if (!snapshot) return;
+        const percent = Math.max(0, Math.min(100, snapshot.progress * 100));
+        progressFill.style.width = `${percent}%`;
+        progressBar.setAttribute("aria-valuenow", String(Math.round(percent)));
+        const totalSec = player.book?.estimatedSeconds || 0;
+        const elapsed = Math.round(totalSec * snapshot.progress);
+        elapsedLabel.textContent = formatTime(elapsed);
+        remainingLabel.textContent = `-${formatTime(Math.max(0, totalSec - elapsed))}`;
+      };
+
+      const updatePlayState = (state) => {
+        if (state.playing) {
+          playPauseBtn.textContent = "⏸ Pause";
+          playerState.textContent = "playing";
+        } else if (state.paused) {
+          playPauseBtn.textContent = "▶ Resume";
+          playerState.textContent = "paused";
+        } else {
+          playPauseBtn.textContent = "▶ Play";
+          playerState.textContent = player.book ? "ready" : "idle";
+        }
+      };
+
+      const escapeHtml = (text) =>
+        String(text)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+
+      const highlightWord = (detail) => {
+        const active = reader.querySelector(`.sentence[data-ci="${detail.chapterIndex}"][data-si="${detail.sentenceIndex}"]`);
+        if (!active) return;
+        const text = detail.text || active.textContent;
+        const idx = Math.max(0, Math.min(text.length - 1, detail.charIndex || 0));
+        let wordStart = idx;
+        while (wordStart > 0 && !/\s/.test(text.charAt(wordStart - 1))) wordStart -= 1;
+        let wordEnd = idx;
+        while (wordEnd < text.length && !/\s/.test(text.charAt(wordEnd))) wordEnd += 1;
+        const before = text.slice(0, wordStart);
+        const word = text.slice(wordStart, wordEnd);
+        const after = text.slice(wordEnd);
+        active.innerHTML = `${escapeHtml(before)}<span class="word-active">${escapeHtml(word)}</span>${escapeHtml(after)} `;
+      };
+
+      // --- Voice loading ---
+      const populateVoices = () => {
+        const synth = window.speechSynthesis;
+        if (!synth) return;
+        const voices = synth.getVoices() || [];
+        const stored = loadPrefs().voiceURI;
+        voiceSelect.innerHTML = '<option value="">System default</option>' +
+          voices
+            .slice()
+            .sort((a, b) => a.lang.localeCompare(b.lang) || a.name.localeCompare(b.name))
+            .map((v) => `<option value="${escapeHtml(v.voiceURI)}">${escapeHtml(v.name)} · ${escapeHtml(v.lang)}${v.default ? " · default" : ""}</option>`)
+            .join("");
+        if (stored && voices.some((v) => v.voiceURI === stored)) {
+          voiceSelect.value = stored;
+          player.setVoice(stored);
+        }
+      };
+      if ("speechSynthesis" in window) {
+        populateVoices();
+        window.speechSynthesis.onvoiceschanged = populateVoices;
+      } else {
+        voiceSelect.disabled = true;
+        playPauseBtn.disabled = true;
+        nowPlayingSub.textContent = "This browser does not support speech synthesis. Use Chrome, Edge, or Safari.";
+      }
+
+      // --- Prefs restore ---
+      const prefs = loadPrefs();
+      if (typeof prefs.rate === "number") { rateInput.value = prefs.rate; player.setRate(prefs.rate); }
+      if (typeof prefs.pitch === "number") { pitchInput.value = prefs.pitch; player.setPitch(prefs.pitch); }
+      if (typeof prefs.volume === "number") { volumeInput.value = prefs.volume; player.setVolume(prefs.volume); }
+      rateLabel.textContent = `${Number(rateInput.value).toFixed(2)}×`;
+      pitchLabel.textContent = Number(pitchInput.value).toFixed(2);
+      volumeLabel.textContent = `${Math.round(Number(volumeInput.value) * 100)}%`;
+
+      // --- Draft restore ---
       input.value = loadDraft() || "";
       updateStats();
-      input.addEventListener("input", updateStats);
+
+      input.addEventListener("input", () => {
+        updateStats();
+        saveDraft(input.value || "");
+      });
 
       fileInput.addEventListener("change", async () => {
         const file = fileInput.files && fileInput.files[0];
         if (!file) return;
-        const text = await file.text();
-        input.value = text;
-        updateStats();
-        setStatus(`Loaded ${file.name} into demo editor.`);
-      });
-
-      document.getElementById("demo-save").addEventListener("click", () => {
-        const saved = saveDraft(input.value || "");
-        if (saved && saved.ok) {
-          setStatus("Draft saved locally.");
-          return;
-        }
-        const detail = (saved && saved.error) ? ` (${saved.error})` : "";
-        setStatus(`Could not save draft locally${detail}.`);
-      });
-
-      document.getElementById("demo-generate").addEventListener("click", async () => {
-        if (isGenerating) {
-          return;
-        }
-        if (!(input.value || "").trim()) {
-          setStatus("Paste some text first.");
-          return;
-        }
-        setGeneratingState(true);
         try {
-          setStatus("Creating browser demo project...");
-          currentDemo = makeDemoProject(input.value);
-          output.textContent = JSON.stringify(currentDemo.summary, null, 2);
-          const start = await startCloudProcess({ text: currentDemo.previewText, demoMode: true });
-          if (!start.ok || !start.data || !start.data.job_id) {
-            setStatus("Demo ready locally. Cloud API unavailable right now.");
-            return;
-          }
-          const jobId = start.data.job_id;
-          setStatus(`Cloud demo job queued (${jobId}). Polling progress...`);
-          let completed = false;
-          for (let attempt = 0; attempt < 24; attempt += 1) {
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            const polled = await pollCloudProcess(jobId);
-            if (!polled.ok || !polled.data) {
-              continue;
-            }
-            const p = Number(polled.data.progress_percent || 0);
-            const eta = Number(polled.data.eta_seconds || 0);
-            setStatus(`Cloud job ${polled.data.status}: ${p}% · ETA ${eta}s`);
-            if (polled.data.status === "completed") {
-              completed = true;
-              break;
-            }
-          }
-          if (!completed) {
-            setStatus("Cloud demo is taking longer than expected. Please retry in a moment.");
-          }
-        } finally {
-          setGeneratingState(false);
-        }
-      });
-
-      document.getElementById("demo-speak").addEventListener("click", () => {
-        if (!currentDemo) {
-          setStatus("Generate demo first.");
-          return;
-        }
-        if (!("speechSynthesis" in window)) {
-          setStatus("Browser speech synthesis not available.");
-          return;
-        }
-        const utterance = new SpeechSynthesisUtterance(currentDemo.previewText);
-        utterance.rate = 1.0;
-        utterance.onstart = () => setStatus("Playing browser voice preview...");
-        utterance.onend = () => setStatus("Playback finished.");
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(utterance);
-      });
-
-      document.getElementById("demo-share").addEventListener("click", async () => {
-        if (!currentDemo) {
-          setStatus("Generate demo first.");
-          return;
-        }
-        const shareText = currentDemo.previewText.slice(0, 1000);
-        if (navigator.share) {
-          try {
-            await navigator.share({
-              title: "Audiobook Maker demo text",
-              text: shareText,
-            });
-            setStatus("Shared demo text.");
-            return;
-          } catch (err) {
-            if (err && err.name === "AbortError") {
-              setStatus("Share cancelled.");
-              return;
-            }
-            // Fall through to clipboard fallback.
-          }
-        }
-        try {
-          await navigator.clipboard.writeText(shareText);
-          setStatus("Copied demo text to clipboard.");
+          const text = await file.text();
+          input.value = text;
+          updateStats();
+          saveDraft(text);
+          nowPlayingSub.textContent = `Loaded ${file.name} (${(file.size / 1024).toFixed(1)} KB).`;
         } catch (err) {
-          const detail = err instanceof Error ? err.message : String(err);
-          setStatus(`Share failed: ${detail}`);
+          nowPlayingSub.textContent = `Could not read file: ${err.message || err}`;
         }
       });
 
-      document.getElementById("demo-download").addEventListener("click", () => {
-        if (!currentDemo) {
-          setStatus("Generate demo first.");
-          return;
+      $("#fetch-url").addEventListener("click", async () => {
+        const url = (urlInput.value || "").trim();
+        if (!url) return;
+        nowPlayingSub.textContent = `Fetching ${url} …`;
+        try {
+          const res = await fetch(url, { headers: { Accept: "text/plain, */*;q=0.1" }, mode: "cors" });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const text = await res.text();
+          input.value = text.slice(0, 500000);
+          updateStats();
+          saveDraft(input.value);
+          nowPlayingSub.textContent = `Fetched ${input.value.length.toLocaleString()} characters.`;
+        } catch (err) {
+          nowPlayingSub.textContent = `Fetch failed (CORS or network): ${err.message || err}`;
         }
-        const blob = new Blob([currentDemo.previewText], { type: "text/plain;charset=utf-8" });
+      });
+
+      $("#demo-load").addEventListener("click", () => {
+        input.value = SAMPLE_TEXT;
+        updateStats();
+        saveDraft(SAMPLE_TEXT);
+        nowPlayingSub.textContent = "Sample text loaded. Tap Build audiobook.";
+      });
+
+      $("#save-draft").addEventListener("click", () => {
+        const saved = saveDraft(input.value || "");
+        nowPlayingSub.textContent = saved && saved.ok ? "Draft saved locally." : "Could not save draft locally.";
+      });
+
+      $("#download-text").addEventListener("click", () => {
+        const blob = new Blob([input.value || ""], { type: "text/plain;charset=utf-8" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "audiobook-demo.txt";
+        a.download = "audiobook-source.txt";
         document.body.appendChild(a);
         a.click();
         a.remove();
         URL.revokeObjectURL(url);
-        setStatus("Demo text downloaded.");
       });
+
+      $("#share-text").addEventListener("click", async () => {
+        const shareText = (input.value || "").slice(0, 2000);
+        if (!shareText.trim()) { nowPlayingSub.textContent = "Nothing to share yet."; return; }
+        try {
+          if (navigator.share) {
+            await navigator.share({ title: "Audiobook source", text: shareText });
+            return;
+          }
+          await navigator.clipboard.writeText(shareText);
+          nowPlayingSub.textContent = "Copied first 2000 characters to clipboard.";
+        } catch (err) {
+          if (err && err.name === "AbortError") return;
+          nowPlayingSub.textContent = `Share failed: ${err.message || err}`;
+        }
+      });
+
+      $("#clear-text").addEventListener("click", () => {
+        if (!input.value) return;
+        if (!confirm("Clear pasted text and local draft?")) return;
+        input.value = "";
+        updateStats();
+        saveDraft("");
+        writePosition(null);
+        player.stop();
+        player.book = null;
+        renderBook();
+      });
+
+      $("#build-book").addEventListener("click", () => {
+        const text = (input.value || "").trim();
+        if (!text) {
+          nowPlayingSub.textContent = "Paste or import some text first.";
+          return;
+        }
+        player.load(text);
+        renderBook();
+
+        const resume = savedPosition();
+        if (resume && resume.draftHash === hashText(text) && player.book && player.book.chapters[resume.chapterIndex]) {
+          player.chapterIndex = resume.chapterIndex;
+          player.sentenceIndex = Math.min(
+            resume.sentenceIndex || 0,
+            Math.max(0, player.book.chapters[resume.chapterIndex].sentences.length - 1)
+          );
+          updateActiveHighlights();
+          nowPlayingSub.textContent = `Resuming at chapter ${resume.chapterIndex + 1}, sentence ${resume.sentenceIndex + 1}. Tap Play to continue.`;
+        } else {
+          writePosition(null);
+          nowPlayingSub.textContent = `Ready. ${player.book.chapters.length} chapter${player.book.chapters.length === 1 ? "" : "s"} · ~${formatTime(player.book.estimatedSeconds)} total`;
+        }
+        updateProgress(player.getPosition());
+      });
+
+      playPauseBtn.addEventListener("click", () => {
+        if (!player.book) { nowPlayingSub.textContent = "Build the audiobook first."; return; }
+        if (player.playing) player.pause();
+        else player.play();
+      });
+      $("#next-sentence").addEventListener("click", () => player.nextSentence());
+      $("#prev-sentence").addEventListener("click", () => player.prevSentence());
+      $("#next-chapter").addEventListener("click", () => {
+        if (!player.book) return;
+        const target = Math.min(player.book.chapters.length - 1, player.chapterIndex + 1);
+        player.jumpToChapter(target);
+      });
+      $("#prev-chapter").addEventListener("click", () => {
+        if (!player.book) return;
+        const target = Math.max(0, player.chapterIndex - 1);
+        player.jumpToChapter(target);
+      });
+
+      progressBar.addEventListener("click", (event) => {
+        if (!player.book) return;
+        const rect = progressBar.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+        const targetChars = ratio * player.book.totalChars;
+        let running = 0;
+        for (let ci = 0; ci < player.book.chapters.length; ci += 1) {
+          const ch = player.book.chapters[ci];
+          if (running + ch.charCount >= targetChars) {
+            let sentenceRunning = running;
+            for (let si = 0; si < ch.sentences.length; si += 1) {
+              sentenceRunning += ch.sentences[si].length;
+              if (sentenceRunning >= targetChars) {
+                player.jumpToSentence(ci, si);
+                return;
+              }
+            }
+            player.jumpToSentence(ci, 0);
+            return;
+          }
+          running += ch.charCount;
+        }
+      });
+
+      // Voice / rate / pitch / volume
+      voiceSelect.addEventListener("change", () => {
+        player.setVoice(voiceSelect.value || null);
+        savePrefs({ voiceURI: voiceSelect.value || null });
+      });
+      rateInput.addEventListener("input", () => {
+        player.setRate(rateInput.value);
+        rateLabel.textContent = `${Number(rateInput.value).toFixed(2)}×`;
+        savePrefs({ rate: Number(rateInput.value) });
+      });
+      pitchInput.addEventListener("input", () => {
+        player.setPitch(pitchInput.value);
+        pitchLabel.textContent = Number(pitchInput.value).toFixed(2);
+        savePrefs({ pitch: Number(pitchInput.value) });
+      });
+      volumeInput.addEventListener("input", () => {
+        player.setVolume(volumeInput.value);
+        volumeLabel.textContent = `${Math.round(Number(volumeInput.value) * 100)}%`;
+        savePrefs({ volume: Number(volumeInput.value) });
+      });
+
+      // Keyboard shortcuts
+      document.addEventListener("keydown", (event) => {
+        if (["INPUT", "TEXTAREA", "SELECT"].includes((event.target || {}).tagName)) return;
+        if (event.key === " ") {
+          event.preventDefault();
+          playPauseBtn.click();
+        } else if (event.key === "ArrowRight") {
+          player.nextSentence();
+        } else if (event.key === "ArrowLeft") {
+          player.prevSentence();
+        } else if (event.key.toLowerCase() === "n") {
+          $("#next-chapter").click();
+        } else if (event.key.toLowerCase() === "p") {
+          $("#prev-chapter").click();
+        }
+      });
+
+      // Player events → UI
+      player.addEventListener("state", (e) => {
+        updatePlayState(e.detail);
+      });
+      player.addEventListener("position", (e) => {
+        updateProgress(e.detail);
+        updateActiveHighlights();
+        if (e.detail) {
+          writePosition({
+            chapterIndex: e.detail.chapterIndex,
+            sentenceIndex: e.detail.sentenceIndex,
+            draftHash: hashText(input.value || ""),
+          });
+        }
+      });
+      player.addEventListener("sentenceStart", () => {
+        updateActiveHighlights();
+        updateProgress(player.getPosition());
+      });
+      player.addEventListener("word", (e) => highlightWord(e.detail));
+      player.addEventListener("chapterChange", () => updateActiveHighlights());
+      player.addEventListener("ended", () => {
+        nowPlayingSub.textContent = "Finished.";
+        updateProgress({ progress: 1, chapterIndex: player.chapterIndex, sentenceIndex: player.sentenceIndex });
+      });
+      player.addEventListener("error", (e) => {
+        nowPlayingSub.textContent = `Playback error: ${e.detail?.message || "unknown"}`;
+      });
+
+      function hashText(text) {
+        let h = 0;
+        const s = String(text || "");
+        for (let i = 0; i < s.length; i += 1) {
+          h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+        }
+        return `${s.length}:${h}`;
+      }
+
+      // Auto-launch if hash asks for it
+      if (window.location.hash === "#launch" && input.value.trim()) {
+        queueMicrotask(() => $("#build-book").click());
+      }
+
+      // On page leave, stop playback so the synth queue doesn't leak
+      window.addEventListener("pagehide", () => { try { player.stop(); } catch (_err) {} });
     </script>
   </body>
 </html>
