@@ -1,45 +1,621 @@
 <!doctype html>
 <html lang="en" class="dark">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>Audiobook Creator</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; background: #0b1020; }
-    body {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      color: #e2e8f0;
-      text-align: center;
-      padding: 24px;
-      box-sizing: border-box;
-    }
-    .logo { font-size: 2rem; font-weight: 700; color: #a5b4fc; margin-bottom: 8px; }
-    .sub { font-size: 1rem; color: #94a3b8; margin-bottom: 32px; }
-    .btn {
-      display: inline-block;
-      background: #4f46e5;
-      color: #fff;
-      font-weight: 700;
-      font-size: 1rem;
-      padding: 14px 32px;
-      border-radius: 12px;
-      text-decoration: none;
-      transition: background 0.2s;
-    }
-    .btn:hover { background: #4338ca; }
-    .note { margin-top: 20px; font-size: 0.8rem; color: #64748b; }
-  </style>
-</head>
-<body>
-  <div class="logo">Audiobook Creator</div>
-  <p class="sub">Turn any text into a full audiobook &mdash; free, no account needed.</p>
-  <a class="btn" href="/web/index.html">Launch Web Demo</a>
-  <p class="note">Full audiobook generation coming soon via cloud backend.</p>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#4f46e5" />
+    <meta
+      name="description"
+      content="Audiobook Creator launcher: turn any EPUB, PDF, or pasted text into a listenable audiobook right in your browser."
+    />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <title>Audiobook Creator - Launcher</title>
+    <style>
+      :root {
+        color-scheme: dark light;
+        --bg: #0b1020;
+        --bg-elev: rgba(15, 23, 42, 0.75);
+        --border: rgba(148, 163, 184, 0.22);
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --brand: #4f46e5;
+        --brand-500: #6366f1;
+        --brand-700: #4338ca;
+        --accent: #06b6d4;
+        --danger: #dc2626;
+        --success: #059669;
+      }
+      html.light {
+        color-scheme: light;
+        --bg: #f8fafc;
+        --bg-elev: #ffffff;
+        --border: rgba(15, 23, 42, 0.12);
+        --text: #0f172a;
+        --muted: #475569;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        line-height: 1.5;
+        min-height: 100vh;
+        padding: max(0px, env(safe-area-inset-top)) max(0px, env(safe-area-inset-right))
+          max(0px, env(safe-area-inset-bottom)) max(0px, env(safe-area-inset-left));
+      }
+      main { max-width: 980px; margin: 0 auto; padding: 16px 16px 96px; }
+
+      header.launcher-hero {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 4px;
+      }
+      header.launcher-hero .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      header.launcher-hero .brand img {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+      }
+      header.launcher-hero h1 {
+        margin: 0;
+        font-size: 1.1rem;
+        font-weight: 800;
+      }
+      header.launcher-hero .subtitle {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+      header.launcher-hero .actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      header.launcher-hero .ghost-btn {
+        background: transparent;
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 6px 12px;
+        font-size: 0.8rem;
+        cursor: pointer;
+      }
+
+      section.card {
+        background: var(--bg-elev);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 16px;
+        margin-top: 14px;
+      }
+
+      .hero {
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #06b6d4 100%);
+        color: #fff;
+        border-radius: 20px;
+        padding: 24px;
+        margin-top: 8px;
+        border: 0;
+      }
+      .hero h2 {
+        margin: 0 0 6px;
+        font-size: 1.6rem;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+      }
+      .hero p { margin: 0 0 16px; opacity: 0.92; }
+      .hero .cta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-height: 44px;
+        padding: 10px 18px;
+        border-radius: 12px;
+        font-weight: 700;
+        font-size: 0.95rem;
+        text-decoration: none;
+        cursor: pointer;
+        border: 0;
+        color: #fff;
+        transition: transform 0.1s ease, background 0.15s ease;
+      }
+      .btn:active { transform: scale(0.98); }
+      .btn-primary { background: #ffffff; color: #4338ca; }
+      .btn-primary:hover { background: #f1f5f9; }
+      .btn-secondary {
+        background: rgba(255, 255, 255, 0.15);
+        color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+      }
+      .btn-secondary:hover { background: rgba(255, 255, 255, 0.22); }
+      .btn-outline {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--text);
+      }
+      .btn-outline:hover { background: rgba(148, 163, 184, 0.1); }
+
+      .grid-2 { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+      .grid-3 { display: grid; gap: 12px; grid-template-columns: 1fr 1fr 1fr; }
+      @media (max-width: 720px) {
+        .grid-2, .grid-3 { grid-template-columns: 1fr; }
+      }
+
+      h3.section-title {
+        margin: 0 0 6px;
+        font-size: 1.05rem;
+        font-weight: 800;
+      }
+      p.section-sub { margin: 0 0 12px; color: var(--muted); font-size: 0.9rem; }
+
+      .feature h4 { margin: 0 0 4px; font-size: 0.95rem; font-weight: 700; }
+      .feature p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+      .badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 999px;
+        background: rgba(99, 102, 241, 0.18);
+        color: #a5b4fc;
+        font-size: 0.75rem;
+        font-weight: 700;
+      }
+
+      pre.code {
+        background: rgba(15, 23, 42, 0.9);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 0.85rem;
+        overflow-x: auto;
+        margin: 0;
+      }
+      .copy-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .copy-row button {
+        background: transparent;
+        color: var(--muted);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-size: 0.8rem;
+        cursor: pointer;
+      }
+
+      .install-banner {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        z-index: 40;
+        background: var(--bg-elev);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px;
+        display: none;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        box-shadow: 0 8px 28px rgba(2, 6, 23, 0.35);
+        backdrop-filter: blur(8px);
+      }
+      .install-banner.show { display: flex; }
+      .install-banner p { margin: 0; font-size: 0.85rem; }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        background: rgba(6, 182, 212, 0.15);
+        color: #67e8f9;
+      }
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: #22c55e;
+      }
+      .status-dot.warn { background: #f59e0b; }
+      .status-dot.err { background: #ef4444; }
+
+      .api-links { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+      .api-links a {
+        padding: 6px 10px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        color: var(--text);
+        text-decoration: none;
+        font-size: 0.8rem;
+      }
+
+      details {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        margin-top: 8px;
+      }
+      details summary { cursor: pointer; font-weight: 600; }
+      details[open] { background: rgba(148, 163, 184, 0.06); }
+
+      footer.launcher-foot {
+        margin-top: 24px;
+        color: var(--muted);
+        font-size: 0.8rem;
+        text-align: center;
+      }
+
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 96px;
+        transform: translateX(-50%);
+        background: #1e293b;
+        color: #fff;
+        padding: 10px 14px;
+        border-radius: 10px;
+        font-size: 0.85rem;
+        z-index: 80;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+      }
+
+      label.field {
+        display: block;
+        font-size: 0.85rem;
+        color: var(--muted);
+        margin-top: 8px;
+      }
+      label.field input,
+      label.field select {
+        display: block;
+        margin-top: 4px;
+        width: 100%;
+        padding: 10px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: rgba(15, 23, 42, 0.4);
+        color: var(--text);
+        font-size: 0.95rem;
+      }
+      html.light label.field input,
+      html.light label.field select {
+        background: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header class="launcher-hero">
+        <div class="brand">
+          <img src="/icon.svg" alt="Audiobook Creator icon" />
+          <div>
+            <p class="subtitle">Mobile-first launcher</p>
+            <h1>Audiobook Creator</h1>
+          </div>
+        </div>
+        <div class="actions">
+          <button id="share-btn" class="ghost-btn" aria-label="Share launcher link">Share</button>
+          <button id="theme-toggle" class="ghost-btn" aria-label="Toggle light and dark theme" aria-pressed="true">Theme</button>
+        </div>
+      </header>
+
+      <section class="hero">
+        <span class="badge" style="background: rgba(255,255,255,0.18); color:#fff;">No install · Works in any browser</span>
+        <h2 style="margin-top: 10px;">Turn any text into a full audiobook.</h2>
+        <p>Paste text, drop a file, or fetch a URL &mdash; then listen with chapters, adjustable voices and speed, pause &amp; resume, and a highlighted reader.</p>
+        <div class="cta-row">
+          <a id="launch-player" class="btn btn-primary" href="/web/index.html#launch">▶ Launch Audiobook Player</a>
+          <a class="btn btn-secondary" href="#quickstart">⚙ Run locally (Python)</a>
+          <a class="btn btn-secondary" href="/api/launch" target="_blank" rel="noreferrer">🔌 API</a>
+        </div>
+        <p id="launch-feedback" style="margin: 12px 0 0; font-size: 0.8rem; opacity: 0.9;" role="status" aria-live="polite">Player is ready to launch.</p>
+      </section>
+
+      <section class="card" aria-label="Launcher status">
+        <div style="display:flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between;">
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+            <span id="pwa-status" class="status-pill"><span class="status-dot warn"></span>Checking offline cache…</span>
+            <span id="api-status" class="status-pill"><span class="status-dot warn"></span>Checking API…</span>
+          </div>
+          <div class="api-links">
+            <a href="/api/launch" target="_blank" rel="noreferrer">/api/launch</a>
+            <a href="/api/health" target="_blank" rel="noreferrer">/api/health</a>
+            <a href="/api/process" target="_blank" rel="noreferrer">/api/process</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="features" aria-label="Features">
+        <h3 class="section-title">What the launcher gives you</h3>
+        <p class="section-sub">Everything you need to listen right now, with an upgrade path to full cloud generation.</p>
+        <div class="grid-3">
+          <div class="feature">
+            <h4>▶ Real in-browser player</h4>
+            <p>Play / pause / seek / skip chapters with live word highlighting &mdash; no server required.</p>
+          </div>
+          <div class="feature">
+            <h4>🎙️ Voice &amp; speed picker</h4>
+            <p>Pick any voice your device exposes, dial speed from 0.5× to 2×, and tune pitch.</p>
+          </div>
+          <div class="feature">
+            <h4>📚 Auto chapters</h4>
+            <p>Splits on "Chapter", "Part", page breaks, and long blank lines so you can skim.</p>
+          </div>
+          <div class="feature">
+            <h4>💾 Resume where you left off</h4>
+            <p>Your draft and last sentence index are saved locally so a refresh won't lose your spot.</p>
+          </div>
+          <div class="feature">
+            <h4>📱 Installable PWA</h4>
+            <p>Add to Home Screen on iOS/Android for an app-like launcher with offline shell.</p>
+          </div>
+          <div class="feature">
+            <h4>☁️ Cloud + local</h4>
+            <p>Python Gradio app for full MP3/M4B generation; browser mode for quick listening.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="quickstart">
+        <h3 class="section-title">Run the full generator locally</h3>
+        <p class="section-sub">For long books and MP3/M4B export, run the Python app and open it on any device.</p>
+        <div class="grid-2">
+          <div>
+            <label class="field">Step 1 &mdash; install
+              <pre class="code" id="cmd-install"><code>pip install -r requirements.txt</code></pre>
+            </label>
+            <div class="copy-row">
+              <span style="color: var(--muted); font-size: 0.8rem;">Python 3.10+</span>
+              <button type="button" data-copy="cmd-install">Copy</button>
+            </div>
+          </div>
+          <div>
+            <label class="field">Step 2 &mdash; run
+              <pre class="code" id="cmd-run"><code>python3 audiobook_creator_v7.py</code></pre>
+            </label>
+            <div class="copy-row">
+              <span style="color: var(--muted); font-size: 0.8rem;">Opens on port 7860</span>
+              <button type="button" data-copy="cmd-run">Copy</button>
+            </div>
+          </div>
+          <div>
+            <label class="field">Step 3 &mdash; public share link
+              <pre class="code" id="cmd-share"><code>GRADIO_SHARE=1 python3 audiobook_creator_v7.py</code></pre>
+            </label>
+            <div class="copy-row">
+              <span style="color: var(--muted); font-size: 0.8rem;">Optional tunnel</span>
+              <button type="button" data-copy="cmd-share">Copy</button>
+            </div>
+          </div>
+          <div>
+            <label class="field">Step 4 &mdash; open
+              <pre class="code" id="cmd-open"><code>http://localhost:7860</code></pre>
+            </label>
+            <div class="copy-row">
+              <span style="color: var(--muted); font-size: 0.8rem;">Login: admin / audiobook2024</span>
+              <button type="button" data-copy="cmd-open">Copy</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" aria-label="Install instructions">
+        <h3 class="section-title">Install on your phone</h3>
+        <div class="grid-2">
+          <details open>
+            <summary>Android (Chrome / Edge)</summary>
+            <ol>
+              <li>Open this page in Chrome.</li>
+              <li>Tap the install banner or the menu.</li>
+              <li>Choose <strong>Install app</strong>.</li>
+            </ol>
+          </details>
+          <details>
+            <summary>iPhone / iPad (Safari)</summary>
+            <ol>
+              <li>Tap the <strong>Share</strong> icon in Safari.</li>
+              <li>Select <strong>Add to Home Screen</strong>.</li>
+              <li>Launch from the home screen for app-like mode.</li>
+            </ol>
+          </details>
+        </div>
+      </section>
+
+      <section class="card" aria-label="FAQ">
+        <h3 class="section-title">FAQ</h3>
+        <details>
+          <summary>Does the browser player work offline?</summary>
+          <p>Yes &mdash; after your first visit, the launcher shell is cached by a service worker and the player uses your device's built-in speech synthesis.</p>
+        </details>
+        <details>
+          <summary>Can I import an EPUB or PDF?</summary>
+          <p>The browser player takes plain <code>.txt</code> or pasted text. For EPUB/PDF/URL ingestion and exported MP3/M4B files, use the Python app (Quick Start above).</p>
+        </details>
+        <details>
+          <summary>Where are my drafts stored?</summary>
+          <p>Entirely in your browser's <code>localStorage</code>. Clearing site data removes them.</p>
+        </details>
+      </section>
+
+      <footer class="launcher-foot">
+        Audiobook Creator V7 · MIT licensed · <a style="color: inherit;" href="https://github.com/cajub311/audiobook-maker-" target="_blank" rel="noreferrer">GitHub</a>
+      </footer>
+    </main>
+
+    <div id="install-banner" class="install-banner" role="dialog" aria-live="polite">
+      <p>Install Audiobook Creator for one-tap access and offline launcher.</p>
+      <div style="display:flex; gap: 8px;">
+        <button id="install-now" class="btn btn-primary" style="min-height: 36px; padding: 8px 14px;">Install</button>
+        <button id="install-dismiss" class="ghost-btn">Later</button>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        const $ = (sel) => document.querySelector(sel);
+
+        const showToast = (message) => {
+          const toast = document.createElement("div");
+          toast.className = "toast";
+          toast.textContent = message;
+          document.body.appendChild(toast);
+          setTimeout(() => toast.remove(), 2400);
+        };
+
+        const preferredTheme = localStorage.getItem("abm-theme");
+        const prefersLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+        if (preferredTheme === "light" || (!preferredTheme && prefersLight)) {
+          document.documentElement.classList.remove("dark");
+          document.documentElement.classList.add("light");
+        }
+
+        $("#theme-toggle").addEventListener("click", () => {
+          const html = document.documentElement;
+          const nowLight = html.classList.toggle("light");
+          html.classList.toggle("dark", !nowLight);
+          localStorage.setItem("abm-theme", nowLight ? "light" : "dark");
+          $("#theme-toggle").setAttribute("aria-pressed", nowLight ? "false" : "true");
+        });
+
+        document.querySelectorAll("button[data-copy]").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const target = document.getElementById(btn.dataset.copy);
+            const text = target ? target.innerText.trim() : "";
+            if (!text) return;
+            try {
+              await navigator.clipboard.writeText(text);
+              btn.textContent = "Copied";
+              showToast("Copied to clipboard");
+              setTimeout(() => (btn.textContent = "Copy"), 1200);
+            } catch (_err) {
+              btn.textContent = "Failed";
+              showToast("Copy blocked by browser");
+            }
+          });
+        });
+
+        $("#share-btn").addEventListener("click", async () => {
+          const shareData = {
+            title: "Audiobook Creator",
+            text: "Listen to any text as an audiobook in your browser",
+            url: window.location.href,
+          };
+          try {
+            if (navigator.share) {
+              await navigator.share(shareData);
+              showToast("Share opened");
+              return;
+            }
+            await navigator.clipboard.writeText(window.location.href);
+            showToast("Link copied");
+          } catch (err) {
+            if (err && err.name === "AbortError") return;
+            showToast("Share failed");
+          }
+        });
+
+        // Player launch feedback -- users tapping the big button should know it's going.
+        const launchBtn = $("#launch-player");
+        const launchFeedback = $("#launch-feedback");
+        if (launchBtn && launchFeedback) {
+          launchBtn.addEventListener("click", () => {
+            launchFeedback.textContent = "Opening player…";
+          });
+        }
+
+        // PWA install banner
+        let installPromptEvent = null;
+        const installBanner = $("#install-banner");
+        const installNow = $("#install-now");
+        const installDismiss = $("#install-dismiss");
+        const ua = (navigator.userAgent || "").toLowerCase();
+        const isiOS = /iphone|ipad|ipod/.test(ua);
+        const isStandalone =
+          (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+          window.navigator.standalone === true;
+        if (isiOS && !isStandalone) {
+          installBanner.classList.add("show");
+          installNow.style.display = "none";
+        }
+        window.addEventListener("beforeinstallprompt", (event) => {
+          event.preventDefault();
+          installPromptEvent = event;
+          installBanner.classList.add("show");
+          installNow.style.display = "";
+        });
+        installNow.addEventListener("click", async () => {
+          if (!installPromptEvent) {
+            installBanner.classList.remove("show");
+            return;
+          }
+          installPromptEvent.prompt();
+          try {
+            await installPromptEvent.userChoice;
+          } catch (_err) {}
+          installBanner.classList.remove("show");
+        });
+        installDismiss.addEventListener("click", () => installBanner.classList.remove("show"));
+
+        // Service worker
+        const pwaStatus = $("#pwa-status");
+        const apiStatus = $("#api-status");
+        const setPill = (el, text, state) => {
+          if (!el) return;
+          const dot = el.querySelector(".status-dot");
+          if (dot) {
+            dot.classList.remove("warn", "err");
+            if (state === "warn") dot.classList.add("warn");
+            if (state === "err") dot.classList.add("err");
+          }
+          const labelNode = el.childNodes[el.childNodes.length - 1];
+          if (labelNode && labelNode.nodeType === 3) {
+            labelNode.textContent = text;
+          } else {
+            el.append(text);
+          }
+        };
+
+        if ("serviceWorker" in navigator) {
+          navigator.serviceWorker
+            .register("/service-worker.js")
+            .then(() => setPill(pwaStatus, "Offline cache ready", "ok"))
+            .catch(() => setPill(pwaStatus, "Offline cache unavailable", "err"));
+        } else {
+          setPill(pwaStatus, "Offline cache unsupported", "err");
+        }
+
+        fetch("/api/health")
+          .then((res) => (res.ok ? res.json() : Promise.reject(new Error("bad status"))))
+          .then((data) => {
+            if (data && data.status === "ok") {
+              setPill(apiStatus, "API online", "ok");
+            } else {
+              setPill(apiStatus, "API degraded", "warn");
+            }
+          })
+          .catch(() => setPill(apiStatus, "API offline (browser mode only)", "warn"));
+      })();
+    </script>
+  </body>
 </html>
