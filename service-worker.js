@@ -1,4 +1,4 @@
-const CACHE_NAME = "audiobook-launcher-v5";
+const CACHE_NAME = "audiobook-launcher-v6";
 const APP_SHELL = [
   "/",
   "/index.html",
