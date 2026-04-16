@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>Audiobook Creator</title>
+  <title>Audiobook Launcher</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; background: #0b1020; }
@@ -13,33 +13,48 @@
       align-items: center;
       justify-content: center;
       min-height: 100vh;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       color: #e2e8f0;
       text-align: center;
       padding: 24px;
-      box-sizing: border-box;
     }
-    .logo { font-size: 2rem; font-weight: 700; color: #a5b4fc; margin-bottom: 8px; }
-    .sub { font-size: 1rem; color: #94a3b8; margin-bottom: 32px; }
+    .logo { font-size: 2rem; font-weight: 800; color: #a5b4fc; margin-bottom: 8px; }
+    .sub { font-size: 1rem; color: #94a3b8; margin-bottom: 22px; max-width: 720px; }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
     .btn {
       display: inline-block;
       background: #4f46e5;
       color: #fff;
       font-weight: 700;
       font-size: 1rem;
-      padding: 14px 32px;
+      padding: 14px 24px;
       border-radius: 12px;
       text-decoration: none;
       transition: background 0.2s;
+      border: 1px solid #4f46e5;
+    }
+    .btn.secondary {
+      background: #0f172a;
+      border-color: #334155;
     }
     .btn:hover { background: #4338ca; }
-    .note { margin-top: 20px; font-size: 0.8rem; color: #64748b; }
+    .btn.secondary:hover { background: #1e293b; }
+    .note { margin-top: 8px; font-size: 0.85rem; color: #64748b; }
   </style>
 </head>
 <body>
-  <div class="logo">Audiobook Creator</div>
-  <p class="sub">Turn any text into a full audiobook &mdash; free, no account needed.</p>
-  <a class="btn" href="/web/index.html">Launch Web Demo</a>
-  <p class="note">Full audiobook generation coming soon via cloud backend.</p>
+  <div class="logo">Audiobook Launcher</div>
+  <p class="sub">Build chapterized audiobook projects, preview with browser voices, and launch cloud processing from one full launcher workflow.</p>
+  <div class="actions">
+    <a class="btn" href="/web/index.html">Open Full Audiobook Launcher</a>
+    <a class="btn secondary" href="/api/launch">Open Launch API Metadata</a>
+  </div>
+  <p class="note">Tip: In the launcher, use "Open Python app URL" to jump straight into the Gradio app.</p>
 </body>
 </html>

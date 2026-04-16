@@ -3,249 +3,784 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Audiobook Maker - Web Demo</title>
+    <title>Audiobook Launcher</title>
     <style>
-      :root { color-scheme: dark; }
-      body {
-        margin: 0;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        background: #0b1020;
-        color: #e2e8f0;
+      :root {
+        color-scheme: dark;
       }
-      main { max-width: 900px; margin: 0 auto; padding: 16px 16px 96px; }
-      .card {
-        background: rgba(15, 23, 42, 0.75);
-        border: 1px solid rgba(148, 163, 184, 0.2);
-        border-radius: 14px;
-        padding: 14px;
-        margin-bottom: 12px;
-      }
-      textarea {
-        width: 100%;
-        min-height: 220px;
-        border-radius: 12px;
-        border: 1px solid rgba(148, 163, 184, 0.3);
-        background: rgba(15, 23, 42, 0.7);
-        color: #e2e8f0;
-        padding: 10px;
+      * {
         box-sizing: border-box;
       }
-      .grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      button {
-        min-height: 52px;
-        border: 0;
+      body {
+        margin: 0;
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: radial-gradient(circle at top, #1d2140, #0a1020 42%);
+        color: #e2e8f0;
+      }
+      main {
+        width: min(1200px, 100%);
+        margin: 0 auto;
+        padding: 18px 14px 70px;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(1.4rem, 3vw, 2.2rem);
+      }
+      p {
+        line-height: 1.45;
+      }
+      a {
+        color: #c4b5fd;
+      }
+      .subtitle {
+        margin-top: 6px;
+        color: #94a3b8;
+      }
+      .status {
+        margin-top: 14px;
+        background: linear-gradient(135deg, #4f46e5, #7c3aed);
         border-radius: 12px;
+        padding: 12px;
+        font-weight: 600;
+      }
+      .layout {
+        margin-top: 12px;
+        display: grid;
+        gap: 12px;
+        grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+      }
+      .stack {
+        display: grid;
+        gap: 12px;
+      }
+      .card {
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(148, 163, 184, 0.24);
+        border-radius: 14px;
+        padding: 14px;
+      }
+      .label {
+        display: block;
+        font-size: 0.88rem;
+        font-weight: 700;
+        margin-bottom: 6px;
+      }
+      input[type="text"],
+      input[type="number"],
+      textarea,
+      select {
+        width: 100%;
+        border-radius: 10px;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        background: rgba(15, 23, 42, 0.7);
+        color: #e2e8f0;
+        font: inherit;
+        padding: 10px;
+      }
+      textarea {
+        min-height: 230px;
+        resize: vertical;
+      }
+      .row {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .row-3 {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      .btn-grid {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      button,
+      .button-link {
+        min-height: 44px;
+        border: 0;
+        border-radius: 10px;
         font-weight: 700;
         cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 12px;
       }
-      .primary { background: #4f46e5; color: #fff; }
-      .secondary { background: #1e293b; color: #e2e8f0; border: 1px solid rgba(148, 163, 184, 0.25); }
-      .status {
-        position: sticky;
-        top: 0;
-        z-index: 20;
-        background: linear-gradient(135deg, #4f46e5, #7c3aed);
-        border-radius: 10px;
+      button:disabled {
+        opacity: 0.5;
+        cursor: wait;
+      }
+      .primary {
+        background: #4f46e5;
+        color: #ffffff;
+      }
+      .secondary {
+        background: #1e293b;
+        color: #e2e8f0;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+      }
+      .success {
+        background: #047857;
+        color: #ffffff;
+      }
+      .danger {
+        background: #7f1d1d;
+        color: #ffffff;
+      }
+      .muted {
+        color: #94a3b8;
+      }
+      #chapter-list {
+        max-height: 270px;
+        overflow: auto;
+        padding-right: 4px;
+      }
+      .chapter-btn {
+        width: 100%;
+        text-align: left;
+        justify-content: flex-start;
+        margin-bottom: 6px;
         padding: 10px;
-        margin-bottom: 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        background: rgba(30, 41, 59, 0.6);
+        color: #e2e8f0;
       }
-      @media (max-width: 768px) {
-        .grid { grid-template-columns: 1fr; }
+      .chapter-btn.active {
+        border-color: #a78bfa;
+        box-shadow: 0 0 0 1px #8b5cf6 inset;
+      }
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      #chapter-preview {
+        background: rgba(15, 23, 42, 0.65);
+        border-radius: 10px;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        max-height: 180px;
+        overflow: auto;
+        padding: 10px;
+      }
+      .top-links {
+        margin-top: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .small {
+        font-size: 0.82rem;
+      }
+      @media (max-width: 980px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 720px) {
+        .row,
+        .row-3,
+        .btn-grid {
+          grid-template-columns: 1fr;
+        }
       }
     </style>
   </head>
   <body>
     <main>
-      <h1>Audiobook Maker Web Demo</h1>
-      <p>Demo mode creates a short preview (about 5 minutes max) directly in browser. Full generation still uses Python app.</p>
-
-      <div id="status" class="status">Ready.</div>
-
-      <section class="card">
-        <label for="input"><strong>Paste text</strong></label>
-        <input id="file-input" type="file" accept=".txt,text/plain" style="margin: 8px 0 10px; display: block;" />
-        <textarea id="input" placeholder="Paste text for a short browser demo..."></textarea>
-        <p id="stats" style="margin: 8px 0 0; font-size: 13px; opacity: 0.9;">Words: 0 · Est: 0m 0s</p>
-      </section>
-
-      <section class="card">
-        <div class="grid">
-          <button id="demo-generate" class="primary">Generate 5-minute demo</button>
-          <button id="demo-speak" class="secondary">Play in browser voice</button>
-          <button id="demo-share" class="secondary">Share demo text</button>
-          <button id="demo-save" class="secondary">Save draft locally</button>
-          <button id="demo-download" class="secondary">Download demo text</button>
+      <header>
+        <h1>Full Audiobook Launcher</h1>
+        <p class="subtitle">Build chapterized audiobook projects, preview playback in-browser, and launch cloud processing jobs from one page.</p>
+        <div class="top-links">
+          <a class="button-link secondary" href="/">Back to launcher home</a>
+          <button id="share-link-btn" class="secondary">Share launcher link</button>
+          <button id="open-python-btn" class="secondary">Open Python app URL</button>
         </div>
-      </section>
+      </header>
 
-      <section class="card">
-        <h3>Output</h3>
-        <pre id="output">No demo generated yet.</pre>
+      <div id="status" class="status">Ready. Paste text, build your audiobook project, then play or launch cloud processing.</div>
+
+      <section class="layout">
+        <div class="stack">
+          <article class="card">
+            <label for="book-title" class="label">Audiobook title</label>
+            <input id="book-title" type="text" placeholder="My Audiobook" />
+            <div class="row" style="margin-top: 10px;">
+              <div>
+                <label for="file-input" class="label">Import text file (.txt)</label>
+                <input id="file-input" type="file" accept=".txt,text/plain" />
+              </div>
+              <div>
+                <label for="max-chars" class="label">Max chars / chapter</label>
+                <input id="max-chars" type="number" min="600" step="100" value="2600" />
+              </div>
+            </div>
+            <label for="input-text" class="label" style="margin-top: 10px;">Book text</label>
+            <textarea id="input-text" placeholder="Paste your book text here. Use headings like 'Chapter 1' or 'Part II' to split chapters automatically."></textarea>
+            <p id="input-stats" class="muted small" style="margin: 8px 0 0;">Words: 0 · Characters: 0 · Est. runtime: 0m 0s</p>
+          </article>
+
+          <article class="card">
+            <h2 style="margin: 0 0 8px; font-size: 1.08rem;">Build + Save</h2>
+            <div class="btn-grid">
+              <button id="build-btn" class="primary">Build audiobook project</button>
+              <button id="save-draft-btn" class="secondary">Save draft text</button>
+              <button id="save-project-btn" class="success">Save built project</button>
+              <button id="load-project-btn" class="secondary">Load saved project</button>
+              <button id="download-project-btn" class="secondary">Download project JSON</button>
+              <button id="clear-project-btn" class="danger">Clear saved project</button>
+            </div>
+          </article>
+
+          <article class="card">
+            <h2 style="margin: 0 0 8px; font-size: 1.08rem;">Cloud Launch</h2>
+            <p class="small muted" style="margin-top: 0;">
+              Launches the text to the backend process queue and polls status. Use this before opening the full Python UI if you want a quick health check of processing.
+            </p>
+            <div class="row">
+              <button id="launch-cloud-btn" class="primary">Launch cloud processing</button>
+              <button id="refresh-health-btn" class="secondary">Refresh API health</button>
+            </div>
+            <pre id="cloud-output" style="margin-top: 10px;">No cloud job launched yet.</pre>
+          </article>
+        </div>
+
+        <div class="stack">
+          <article class="card">
+            <h2 style="margin: 0 0 8px; font-size: 1.08rem;">Project Summary</h2>
+            <pre id="project-summary">No audiobook project built yet.</pre>
+          </article>
+
+          <article class="card">
+            <h2 style="margin: 0 0 8px; font-size: 1.08rem;">Playback Launcher</h2>
+            <div class="row-3">
+              <div>
+                <label for="voice-select" class="label">Voice</label>
+                <select id="voice-select"></select>
+              </div>
+              <div>
+                <label for="rate-input" class="label">Rate</label>
+                <input id="rate-input" type="number" min="0.6" max="2" step="0.1" value="1" />
+              </div>
+              <div>
+                <label for="auto-next" class="label">Auto next chapter</label>
+                <select id="auto-next">
+                  <option value="yes">Yes</option>
+                  <option value="no">No</option>
+                </select>
+              </div>
+            </div>
+            <p id="playback-meta" class="small muted" style="margin: 8px 0;">No chapter selected.</p>
+            <div id="chapter-list"></div>
+            <div id="chapter-preview" class="small muted">Build a project to view chapter text previews here.</div>
+            <div class="btn-grid" style="margin-top: 10px;">
+              <button id="prev-btn" class="secondary">Previous chapter</button>
+              <button id="play-btn" class="primary">Play chapter</button>
+              <button id="pause-btn" class="secondary">Pause</button>
+              <button id="resume-btn" class="secondary">Resume</button>
+              <button id="stop-btn" class="danger">Stop</button>
+              <button id="next-btn" class="secondary">Next chapter</button>
+            </div>
+          </article>
+
+          <article class="card">
+            <h2 style="margin: 0 0 8px; font-size: 1.08rem;">Launch API Details</h2>
+            <pre id="launch-info-output">Loading /api/launch...</pre>
+          </article>
+        </div>
       </section>
     </main>
 
     <script type="module">
-      import { makeDemoProject } from "/web/processor.js";
-      import { loadDraft, saveDraft } from "/web/storage.js";
-      import { pollCloudProcess, startCloudProcess } from "/web/api-client.js";
+      import { buildAudiobookProject, formatDuration } from "/web/processor.js";
+      import { clearProject, loadDraft, loadPreferences, loadProject, saveDraft, savePreferences, saveProject } from "/web/storage.js";
+      import { fetchHealth, fetchLaunchInfo, pollCloudProcess, startCloudProcess } from "/web/api-client.js";
 
-      const input = document.getElementById("input");
+      const titleInput = document.getElementById("book-title");
       const fileInput = document.getElementById("file-input");
-      const status = document.getElementById("status");
-      const output = document.getElementById("output");
-      const stats = document.getElementById("stats");
-      const generateBtn = document.getElementById("demo-generate");
-      let currentDemo = null;
-      let isGenerating = false;
-      const generateLabelIdle = "Generate 5-minute demo";
+      const maxCharsInput = document.getElementById("max-chars");
+      const inputText = document.getElementById("input-text");
+      const inputStats = document.getElementById("input-stats");
+      const statusNode = document.getElementById("status");
+      const projectSummary = document.getElementById("project-summary");
+      const chapterList = document.getElementById("chapter-list");
+      const chapterPreview = document.getElementById("chapter-preview");
+      const playbackMeta = document.getElementById("playback-meta");
+      const voiceSelect = document.getElementById("voice-select");
+      const rateInput = document.getElementById("rate-input");
+      const autoNext = document.getElementById("auto-next");
+      const cloudOutput = document.getElementById("cloud-output");
+      const launchInfoOutput = document.getElementById("launch-info-output");
 
-      const setStatus = (text) => { status.textContent = text; };
-      const setGeneratingState = (busy) => {
-        isGenerating = !!busy;
-        generateBtn.disabled = !!busy;
-        generateBtn.textContent = busy ? "Generating..." : generateLabelIdle;
-        generateBtn.setAttribute("aria-busy", busy ? "true" : "false");
-      };
-      const updateStats = () => {
-        const text = String(input.value || "").trim();
-        const words = text ? text.split(/\s+/).length : 0;
+      const buildBtn = document.getElementById("build-btn");
+      const saveDraftBtn = document.getElementById("save-draft-btn");
+      const saveProjectBtn = document.getElementById("save-project-btn");
+      const loadProjectBtn = document.getElementById("load-project-btn");
+      const clearProjectBtn = document.getElementById("clear-project-btn");
+      const downloadProjectBtn = document.getElementById("download-project-btn");
+      const launchCloudBtn = document.getElementById("launch-cloud-btn");
+      const refreshHealthBtn = document.getElementById("refresh-health-btn");
+      const shareLinkBtn = document.getElementById("share-link-btn");
+      const openPythonBtn = document.getElementById("open-python-btn");
+      const prevBtn = document.getElementById("prev-btn");
+      const playBtn = document.getElementById("play-btn");
+      const pauseBtn = document.getElementById("pause-btn");
+      const resumeBtn = document.getElementById("resume-btn");
+      const stopBtn = document.getElementById("stop-btn");
+      const nextBtn = document.getElementById("next-btn");
+
+      const speechSupported = "speechSynthesis" in window;
+      let launchInfo = null;
+      let currentProject = null;
+      let activeChapterIndex = 0;
+      let currentUtterance = null;
+      let launchBusy = false;
+
+      function setStatus(text) {
+        statusNode.textContent = text;
+      }
+
+      function textWordCount(text) {
+        const source = String(text || "").trim();
+        return source ? source.split(/\s+/).length : 0;
+      }
+
+      function updateInputStats() {
+        const text = String(inputText.value || "");
+        const words = textWordCount(text);
         const chars = text.length;
-        const sec = Math.max(0, Math.round(chars / 28));
-        const min = Math.floor(sec / 60);
-        const rem = sec % 60;
-        stats.textContent = `Words: ${words} · Chars: ${chars} · Est: ${min}m ${rem}s`;
-      };
+        const seconds = Math.max(0, Math.round(chars / 28));
+        inputStats.textContent = `Words: ${words} · Characters: ${chars} · Est. runtime: ${formatDuration(seconds)}`;
+      }
 
-      input.value = loadDraft() || "";
-      updateStats();
-      input.addEventListener("input", updateStats);
+      function persistPreferences() {
+        savePreferences({
+          title: titleInput.value || "",
+          maxCharsPerChapter: Number(maxCharsInput.value) || 2600,
+          voiceName: voiceSelect.value || "",
+          playbackRate: Number(rateInput.value) || 1,
+          autoNext: autoNext.value || "yes",
+        });
+      }
 
-      fileInput.addEventListener("change", async () => {
-        const file = fileInput.files && fileInput.files[0];
-        if (!file) return;
-        const text = await file.text();
-        input.value = text;
-        updateStats();
-        setStatus(`Loaded ${file.name} into demo editor.`);
-      });
-
-      document.getElementById("demo-save").addEventListener("click", () => {
-        const saved = saveDraft(input.value || "");
-        if (saved && saved.ok) {
-          setStatus("Draft saved locally.");
+      function refreshPlaybackMeta() {
+        if (!currentProject || !currentProject.chapters || currentProject.chapters.length === 0) {
+          playbackMeta.textContent = "No chapter selected.";
           return;
         }
-        const detail = (saved && saved.error) ? ` (${saved.error})` : "";
-        setStatus(`Could not save draft locally${detail}.`);
-      });
+        const chapter = currentProject.chapters[activeChapterIndex];
+        playbackMeta.textContent = `Chapter ${chapter.index}/${currentProject.chapters.length}: ${chapter.title} · ${chapter.words} words · ${formatDuration(chapter.estimatedSeconds)}`;
+      }
 
-      document.getElementById("demo-generate").addEventListener("click", async () => {
-        if (isGenerating) {
+      function renderProjectSummary() {
+        if (!currentProject) {
+          projectSummary.textContent = "No audiobook project built yet.";
+          chapterList.innerHTML = "";
+          chapterPreview.textContent = "Build a project to view chapter text previews here.";
+          refreshPlaybackMeta();
           return;
         }
-        if (!(input.value || "").trim()) {
-          setStatus("Paste some text first.");
+        projectSummary.textContent = JSON.stringify(
+          {
+            id: currentProject.id,
+            title: currentProject.title,
+            chapters: currentProject.chapters.length,
+            words: currentProject.totalWords,
+            chars: currentProject.totalChars,
+            estimatedDuration: currentProject.estimatedDurationLabel,
+            createdAt: currentProject.createdAt,
+          },
+          null,
+          2
+        );
+        renderChapterList();
+        renderChapterPreview();
+      }
+
+      function renderChapterList() {
+        chapterList.innerHTML = "";
+        if (!currentProject || !currentProject.chapters) {
           return;
         }
-        setGeneratingState(true);
-        try {
-          setStatus("Creating browser demo project...");
-          currentDemo = makeDemoProject(input.value);
-          output.textContent = JSON.stringify(currentDemo.summary, null, 2);
-          const start = await startCloudProcess({ text: currentDemo.previewText, demoMode: true });
-          if (!start.ok || !start.data || !start.data.job_id) {
-            setStatus("Demo ready locally. Cloud API unavailable right now.");
+        currentProject.chapters.forEach((chapter, index) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = `chapter-btn${index === activeChapterIndex ? " active" : ""}`;
+          button.textContent = `${chapter.index}. ${chapter.title} (${formatDuration(chapter.estimatedSeconds)})`;
+          button.addEventListener("click", () => {
+            activeChapterIndex = index;
+            renderChapterList();
+            renderChapterPreview();
+            refreshPlaybackMeta();
+          });
+          chapterList.appendChild(button);
+        });
+        refreshPlaybackMeta();
+      }
+
+      function renderChapterPreview() {
+        if (!currentProject || !currentProject.chapters || currentProject.chapters.length === 0) {
+          chapterPreview.textContent = "Build a project to view chapter text previews here.";
+          return;
+        }
+        const chapter = currentProject.chapters[activeChapterIndex];
+        chapterPreview.textContent = chapter.text;
+      }
+
+      function selectedVoice() {
+        if (!speechSupported) {
+          return null;
+        }
+        const voices = window.speechSynthesis.getVoices();
+        return voices.find((voice) => voice.name === voiceSelect.value) || null;
+      }
+
+      function stopSpeaking(silent = false) {
+        if (!speechSupported) {
+          return;
+        }
+        window.speechSynthesis.cancel();
+        currentUtterance = null;
+        if (!silent) {
+          setStatus("Playback stopped.");
+        }
+      }
+
+      function playCurrentChapter() {
+        if (!speechSupported) {
+          setStatus("Browser speech synthesis is not supported in this browser.");
+          return;
+        }
+        if (!currentProject || !currentProject.chapters || currentProject.chapters.length === 0) {
+          setStatus("Build or load a project before playback.");
+          return;
+        }
+        stopSpeaking(true);
+        const chapter = currentProject.chapters[activeChapterIndex];
+        const utterance = new SpeechSynthesisUtterance(chapter.text);
+        utterance.rate = Math.max(0.6, Math.min(2, Number(rateInput.value) || 1));
+        const voice = selectedVoice();
+        if (voice) {
+          utterance.voice = voice;
+        }
+        utterance.onstart = () => {
+          setStatus(`Playing chapter ${chapter.index}: ${chapter.title}`);
+        };
+        utterance.onend = () => {
+          if (autoNext.value === "yes" && activeChapterIndex < currentProject.chapters.length - 1) {
+            activeChapterIndex += 1;
+            renderChapterList();
+            renderChapterPreview();
+            playCurrentChapter();
             return;
           }
-          const jobId = start.data.job_id;
-          setStatus(`Cloud demo job queued (${jobId}). Polling progress...`);
-          let completed = false;
-          for (let attempt = 0; attempt < 24; attempt += 1) {
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            const polled = await pollCloudProcess(jobId);
-            if (!polled.ok || !polled.data) {
+          setStatus("Playback finished.");
+        };
+        utterance.onerror = () => {
+          setStatus("Playback failed. Try a different voice or shorter chapter.");
+        };
+        currentUtterance = utterance;
+        window.speechSynthesis.speak(utterance);
+      }
+
+      function populateVoices(preferredVoiceName = "") {
+        const existing = voiceSelect.value;
+        const selectedName = preferredVoiceName || existing;
+        const voices = speechSupported ? window.speechSynthesis.getVoices() : [];
+        voiceSelect.innerHTML = "";
+        const noneOption = document.createElement("option");
+        noneOption.value = "";
+        noneOption.textContent = speechSupported ? "Default system voice" : "Speech not supported";
+        voiceSelect.appendChild(noneOption);
+
+        for (const voice of voices) {
+          const option = document.createElement("option");
+          option.value = voice.name;
+          option.textContent = `${voice.name} (${voice.lang})`;
+          voiceSelect.appendChild(option);
+        }
+
+        if (selectedName && Array.from(voiceSelect.options).some((opt) => opt.value === selectedName)) {
+          voiceSelect.value = selectedName;
+        } else {
+          voiceSelect.value = "";
+        }
+      }
+
+      async function launchCloudProcessing() {
+        if (!currentProject) {
+          setStatus("Build or load a project first.");
+          return;
+        }
+        if (launchBusy) {
+          return;
+        }
+        launchBusy = true;
+        launchCloudBtn.disabled = true;
+        launchCloudBtn.textContent = "Launching...";
+        try {
+          const start = await startCloudProcess({
+            title: currentProject.title,
+            text: currentProject.fullText,
+            chapter_count: currentProject.chapters.length,
+            demoMode: false,
+          });
+          if (!start.ok || !start.data || !start.data.job_id) {
+            const message = start.message || "Cloud queue unavailable.";
+            cloudOutput.textContent = message;
+            setStatus(`Launch failed: ${message}`);
+            return;
+          }
+          const jobId = String(start.data.job_id);
+          cloudOutput.textContent = JSON.stringify(start.data, null, 2);
+          setStatus(`Cloud job ${jobId} queued. Polling status...`);
+          let done = false;
+          for (let attempt = 0; attempt < 80; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 1200));
+            const poll = await pollCloudProcess(jobId);
+            if (!poll.ok || !poll.data) {
               continue;
             }
-            const p = Number(polled.data.progress_percent || 0);
-            const eta = Number(polled.data.eta_seconds || 0);
-            setStatus(`Cloud job ${polled.data.status}: ${p}% · ETA ${eta}s`);
-            if (polled.data.status === "completed") {
-              completed = true;
+            cloudOutput.textContent = JSON.stringify(poll.data, null, 2);
+            const progress = Number(poll.data.progress_percent || 0);
+            const eta = Number(poll.data.eta_seconds || 0);
+            setStatus(`Cloud job ${jobId}: ${poll.data.status} ${progress}% (ETA ${eta}s)`);
+            if (poll.data.status === "completed") {
+              done = true;
               break;
             }
           }
-          if (!completed) {
-            setStatus("Cloud demo is taking longer than expected. Please retry in a moment.");
+          if (!done) {
+            setStatus("Cloud launch started, but completion is still pending. Keep the page open and poll again.");
           }
         } finally {
-          setGeneratingState(false);
+          launchBusy = false;
+          launchCloudBtn.disabled = false;
+          launchCloudBtn.textContent = "Launch cloud processing";
         }
-      });
+      }
 
-      document.getElementById("demo-speak").addEventListener("click", () => {
-        if (!currentDemo) {
-          setStatus("Generate demo first.");
-          return;
+      async function refreshApiDetails() {
+        const [launchResult, healthResult] = await Promise.all([fetchLaunchInfo(), fetchHealth()]);
+        if (launchResult.ok) {
+          launchInfo = launchResult.data;
+          launchInfoOutput.textContent = JSON.stringify(launchInfo, null, 2);
+        } else {
+          launchInfoOutput.textContent = launchResult.message || "Could not fetch /api/launch";
         }
-        if (!("speechSynthesis" in window)) {
-          setStatus("Browser speech synthesis not available.");
-          return;
+        if (healthResult.ok && healthResult.data && healthResult.data.status === "ok") {
+          setStatus("Launcher ready. API health is good.");
         }
-        const utterance = new SpeechSynthesisUtterance(currentDemo.previewText);
-        utterance.rate = 1.0;
-        utterance.onstart = () => setStatus("Playing browser voice preview...");
-        utterance.onend = () => setStatus("Playback finished.");
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(utterance);
-      });
+      }
 
-      document.getElementById("demo-share").addEventListener("click", async () => {
-        if (!currentDemo) {
-          setStatus("Generate demo first.");
-          return;
-        }
-        const shareText = currentDemo.previewText.slice(0, 1000);
-        if (navigator.share) {
-          try {
-            await navigator.share({
-              title: "Audiobook Maker demo text",
-              text: shareText,
-            });
-            setStatus("Shared demo text.");
-            return;
-          } catch (err) {
-            if (err && err.name === "AbortError") {
-              setStatus("Share cancelled.");
-              return;
-            }
-            // Fall through to clipboard fallback.
-          }
-        }
+      function buildProject() {
         try {
-          await navigator.clipboard.writeText(shareText);
-          setStatus("Copied demo text to clipboard.");
+          const project = buildAudiobookProject({
+            title: titleInput.value,
+            text: inputText.value,
+            maxCharsPerChapter: Number(maxCharsInput.value) || 2600,
+          });
+          currentProject = project;
+          activeChapterIndex = 0;
+          renderProjectSummary();
+          setStatus(`Built project "${project.title}" with ${project.chapters.length} chapter(s).`);
+          persistPreferences();
         } catch (err) {
           const detail = err instanceof Error ? err.message : String(err);
-          setStatus(`Share failed: ${detail}`);
+          setStatus(detail);
         }
-      });
+      }
 
-      document.getElementById("demo-download").addEventListener("click", () => {
-        if (!currentDemo) {
-          setStatus("Generate demo first.");
+      async function shareLauncherLink() {
+        const payload = {
+          title: "Audiobook Launcher",
+          text: "Open this audiobook launcher",
+          url: window.location.href,
+        };
+        try {
+          if (navigator.share) {
+            await navigator.share(payload);
+            setStatus("Share dialog opened.");
+            return;
+          }
+          await navigator.clipboard.writeText(window.location.href);
+          setStatus("Launcher link copied to clipboard.");
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            setStatus("Share cancelled.");
+            return;
+          }
+          setStatus("Share failed. Copy the URL manually.");
+        }
+      }
+
+      function openPythonApp() {
+        const fallback = "http://localhost:7860";
+        const candidates = [
+          launchInfo && launchInfo.open_url,
+          launchInfo && launchInfo.remote_url,
+          launchInfo && launchInfo.gradio_url,
+          fallback,
+        ].filter(Boolean);
+        const target = String(candidates[0] || fallback);
+        window.open(target, "_blank", "noopener,noreferrer");
+        setStatus(`Opened: ${target}`);
+      }
+
+      function loadSavedProjectIntoUi(project) {
+        if (!project || !project.fullText) {
+          setStatus("No saved project found.");
           return;
         }
-        const blob = new Blob([currentDemo.previewText], { type: "text/plain;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "audiobook-demo.txt";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-        setStatus("Demo text downloaded.");
+        currentProject = project;
+        titleInput.value = project.title || titleInput.value;
+        inputText.value = project.fullText || inputText.value;
+        activeChapterIndex = 0;
+        updateInputStats();
+        renderProjectSummary();
+        setStatus(`Loaded saved project "${project.title}" (${project.chapters.length} chapters).`);
+      }
+
+      inputText.value = loadDraft() || "";
+      updateInputStats();
+      const prefs = loadPreferences();
+      if (prefs && typeof prefs === "object") {
+        if (typeof prefs.title === "string" && prefs.title.trim()) {
+          titleInput.value = prefs.title;
+        }
+        if (prefs.maxCharsPerChapter) {
+          maxCharsInput.value = String(prefs.maxCharsPerChapter);
+        }
+        if (prefs.playbackRate) {
+          rateInput.value = String(prefs.playbackRate);
+        }
+        if (prefs.autoNext === "yes" || prefs.autoNext === "no") {
+          autoNext.value = prefs.autoNext;
+        }
+      }
+      if (!titleInput.value.trim()) {
+        titleInput.value = "My Audiobook";
+      }
+
+      if (speechSupported && typeof window.speechSynthesis.onvoiceschanged !== "undefined") {
+        window.speechSynthesis.onvoiceschanged = () => populateVoices(prefs.voiceName || "");
+      }
+      populateVoices(prefs.voiceName || "");
+
+      const restoredProject = loadProject();
+      if (restoredProject && restoredProject.fullText) {
+        loadSavedProjectIntoUi(restoredProject);
+      }
+
+      inputText.addEventListener("input", updateInputStats);
+      titleInput.addEventListener("change", persistPreferences);
+      maxCharsInput.addEventListener("change", persistPreferences);
+      rateInput.addEventListener("change", persistPreferences);
+      autoNext.addEventListener("change", persistPreferences);
+      voiceSelect.addEventListener("change", persistPreferences);
+
+      fileInput.addEventListener("change", async () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) {
+          return;
+        }
+        const text = await file.text();
+        inputText.value = text;
+        updateInputStats();
+        setStatus(`Loaded file: ${file.name}`);
       });
+
+      buildBtn.addEventListener("click", buildProject);
+      saveDraftBtn.addEventListener("click", () => {
+        const saved = saveDraft(inputText.value || "");
+        setStatus(saved.ok ? "Draft text saved." : `Draft save failed: ${saved.error}`);
+      });
+      saveProjectBtn.addEventListener("click", () => {
+        if (!currentProject) {
+          setStatus("Build or load a project first.");
+          return;
+        }
+        const saved = saveProject(currentProject);
+        setStatus(saved.ok ? "Built project saved locally." : `Project save failed: ${saved.error}`);
+      });
+      loadProjectBtn.addEventListener("click", () => {
+        const saved = loadProject();
+        loadSavedProjectIntoUi(saved);
+      });
+      clearProjectBtn.addEventListener("click", () => {
+        stopSpeaking(true);
+        currentProject = null;
+        activeChapterIndex = 0;
+        const cleared = clearProject();
+        renderProjectSummary();
+        setStatus(cleared.ok ? "Saved project cleared." : `Clear failed: ${cleared.error}`);
+      });
+      downloadProjectBtn.addEventListener("click", () => {
+        if (!currentProject) {
+          setStatus("Build or load a project before export.");
+          return;
+        }
+        const blob = new Blob([JSON.stringify(currentProject, null, 2)], { type: "application/json;charset=utf-8" });
+        const href = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = href;
+        anchor.download = `${(currentProject.title || "audiobook").replace(/[^a-z0-9]+/gi, "_").toLowerCase()}.json`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(href);
+        setStatus("Project JSON downloaded.");
+      });
+
+      launchCloudBtn.addEventListener("click", launchCloudProcessing);
+      refreshHealthBtn.addEventListener("click", refreshApiDetails);
+      shareLinkBtn.addEventListener("click", shareLauncherLink);
+      openPythonBtn.addEventListener("click", openPythonApp);
+
+      prevBtn.addEventListener("click", () => {
+        if (!currentProject || activeChapterIndex <= 0) {
+          return;
+        }
+        activeChapterIndex -= 1;
+        renderChapterList();
+        renderChapterPreview();
+      });
+      nextBtn.addEventListener("click", () => {
+        if (!currentProject || activeChapterIndex >= currentProject.chapters.length - 1) {
+          return;
+        }
+        activeChapterIndex += 1;
+        renderChapterList();
+        renderChapterPreview();
+      });
+      playBtn.addEventListener("click", playCurrentChapter);
+      pauseBtn.addEventListener("click", () => {
+        if (!speechSupported) {
+          return;
+        }
+        window.speechSynthesis.pause();
+        setStatus("Playback paused.");
+      });
+      resumeBtn.addEventListener("click", () => {
+        if (!speechSupported) {
+          return;
+        }
+        window.speechSynthesis.resume();
+        setStatus("Playback resumed.");
+      });
+      stopBtn.addEventListener("click", () => stopSpeaking(false));
+
+      window.addEventListener("beforeunload", () => {
+        stopSpeaking(true);
+        saveDraft(inputText.value || "");
+        persistPreferences();
+      });
+
+      refreshApiDetails();
     </script>
   </body>
 </html>

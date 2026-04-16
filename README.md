@@ -18,6 +18,21 @@ python audiobook_creator_v7.py
 Open http://localhost:7860 in your browser.
 Login: admin / audiobook2024
 
+## Full Web Launcher
+
+The repository now includes a full browser launcher at:
+
+- `/web/index.html` (or `https://<your-domain>/web/index.html`)
+
+Launcher capabilities:
+
+- Build a chapterized audiobook project from pasted/imported text
+- Estimate runtime, words, and per-chapter duration
+- Save/load projects locally, export project JSON
+- Chapter playback controls (play/pause/resume/next/previous) via browser TTS
+- Start and poll backend processing through `/api/process`
+- Open the Python Gradio app URL directly from launcher metadata (`/api/launch`)
+
 ## Deploy to Hugging Face Spaces
 1. Create a new Space at huggingface.co (select Gradio)
 2. Connect your GitHub repo cajub311/audiobook-maker-
