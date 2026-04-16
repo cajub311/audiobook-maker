@@ -1,8 +1,7 @@
-const CACHE_NAME = "audiobook-launcher-v5";
+const CACHE_NAME = "audiobook-launcher-v6";
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/website/index.html",
   "/web/index.html",
   "/web/processor.js",
   "/web/api-client.js",
@@ -35,15 +34,17 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
 
   const url = new URL(event.request.url);
+  const shellKey = "/index.html";
+
   if (event.request.mode === "navigate") {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
           const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put("/index.html", copy));
+          caches.open(CACHE_NAME).then((cache) => cache.put(shellKey, copy));
           return response;
         })
-        .catch(() => caches.match("/index.html"))
+        .catch(() => caches.match(shellKey))
     );
     return;
   }
@@ -61,15 +62,13 @@ self.addEventListener("fetch", (event) => {
           () =>
             new Response(JSON.stringify({ ok: false, error: "offline" }), {
               status: 503,
-              headers: { "Content-Type": "application/json; charset=utf-8" },
+              headers: { "Content-Type": "application/json; charset=utf-8" }
             })
         )
       );
       return;
     }
-    event.respondWith(
-      fetch(event.request)
-    );
+    event.respondWith(fetch(event.request));
     return;
   }
 

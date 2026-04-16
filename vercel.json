@@ -1,10 +1,12 @@
 {
   "cleanUrls": true,
   "trailingSlash": false,
-  "rewrites": [
-    { "source": "/web/:path*", "destination": "/web/:path*" },
-    { "source": "/(.*)", "destination": "/index.html" }
+  "redirects": [
+    { "source": "/website", "destination": "/", "permanent": true },
+    { "source": "/website/", "destination": "/", "permanent": true },
+    { "source": "/website/index.html", "destination": "/", "permanent": true }
   ],
+  "rewrites": [{ "source": "/web/:path*", "destination": "/web/:path*" }],
   "headers": [
     {
       "source": "/(.*)",

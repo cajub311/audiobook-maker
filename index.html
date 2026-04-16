@@ -1,45 +1,505 @@
 <!doctype html>
 <html lang="en" class="dark">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>Audiobook Creator</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; background: #0b1020; }
-    body {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      color: #e2e8f0;
-      text-align: center;
-      padding: 24px;
-      box-sizing: border-box;
-    }
-    .logo { font-size: 2rem; font-weight: 700; color: #a5b4fc; margin-bottom: 8px; }
-    .sub { font-size: 1rem; color: #94a3b8; margin-bottom: 32px; }
-    .btn {
-      display: inline-block;
-      background: #4f46e5;
-      color: #fff;
-      font-weight: 700;
-      font-size: 1rem;
-      padding: 14px 32px;
-      border-radius: 12px;
-      text-decoration: none;
-      transition: background 0.2s;
-    }
-    .btn:hover { background: #4338ca; }
-    .note { margin-top: 20px; font-size: 0.8rem; color: #64748b; }
-  </style>
-</head>
-<body>
-  <div class="logo">Audiobook Creator</div>
-  <p class="sub">Turn any text into a full audiobook &mdash; free, no account needed.</p>
-  <a class="btn" href="/web/index.html">Launch Web Demo</a>
-  <p class="note">Full audiobook generation coming soon via cloud backend.</p>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#4f46e5" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <title>Audiobook Maker V7 - Launcher</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              brand: {
+                500: "#6366f1",
+                600: "#4f46e5"
+              }
+            }
+          }
+        }
+      };
+    </script>
+    <style>
+      body {
+        padding: max(0px, env(safe-area-inset-top)) max(0px, env(safe-area-inset-right))
+          max(0px, env(safe-area-inset-bottom)) max(0px, env(safe-area-inset-left));
+      }
+      button {
+        position: relative;
+        overflow: hidden;
+      }
+      button:active::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        transform: translate(-50%, -50%);
+        background: rgba(255, 255, 255, 0.45);
+        animation: launcher-ripple 0.5s ease-out forwards;
+      }
+      @keyframes launcher-ripple {
+        to { width: 220px; height: 220px; opacity: 0; }
+      }
+    </style>
+  </head>
+  <body class="bg-slate-50 text-slate-900 transition-colors duration-300 dark:bg-slate-950 dark:text-slate-100">
+    <div
+      id="install-banner"
+      class="fixed inset-x-3 top-3 z-50 hidden rounded-2xl border border-indigo-300/40 bg-indigo-50/95 p-3 text-sm shadow-xl backdrop-blur dark:border-indigo-500/40 dark:bg-slate-900/95"
+    >
+      <div class="flex items-center justify-between gap-3">
+        <p>Install Audiobook Maker Launcher for one-tap access and offline launcher caching.</p>
+        <div class="flex items-center gap-2">
+          <button id="install-now" aria-label="Install Audiobook Maker app" class="rounded-lg bg-brand-600 px-4 py-2 text-white">Install</button>
+          <button id="install-dismiss" aria-label="Dismiss install prompt" class="rounded-lg border border-slate-300 px-3 py-1.5 dark:border-slate-700">Later</button>
+        </div>
+      </div>
+    </div>
+
+    <main class="mx-auto max-w-6xl px-4 pb-24 pt-8 md:px-6">
+      <header class="mb-8 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <img src="/icon.svg" alt="Audiobook Maker icon" class="h-10 w-10 rounded-xl" />
+          <div>
+            <p class="text-sm text-slate-500 dark:text-slate-400">Vercel static launcher</p>
+            <h1 class="text-xl font-bold md:text-2xl">Audiobook Maker V7</h1>
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <a
+            href="https://github.com/cajub311/audiobook-maker-"
+            target="_blank"
+            rel="noreferrer"
+            class="rounded-full border border-slate-300 px-3 py-1 text-sm dark:border-slate-700"
+            >GitHub</a
+          >
+          <img
+            alt="GitHub stars"
+            src="https://img.shields.io/github/stars/cajub311/audiobook-maker-?style=social"
+            class="h-6"
+          />
+          <img alt="Version badge" src="https://img.shields.io/badge/version-v7-indigo" class="h-6" />
+          <button id="theme-toggle" aria-label="Toggle light and dark theme" aria-pressed="false" class="rounded-full border border-slate-300 px-3 py-1 text-sm dark:border-slate-700">
+            Toggle theme
+          </button>
+        </div>
+      </header>
+
+      <section class="grid gap-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/70 md:grid-cols-2 md:p-10">
+        <div>
+          <p class="mb-2 inline-flex rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+            Mobile-first audiobook launcher
+          </p>
+          <h2 class="text-3xl font-black leading-tight md:text-4xl">Audiobook Maker V7</h2>
+          <p class="mt-4 text-slate-600 dark:text-slate-300">
+            Modern Gradio pipeline for creating chaptered audiobooks with resume support, character voices, and cloud backup.
+          </p>
+          <div class="mt-6 flex flex-wrap gap-3">
+            <a href="#quickstart" class="w-full rounded-xl bg-brand-600 px-4 py-3 text-center font-semibold text-white hover:bg-brand-500 sm:w-auto">Quick Start</a>
+            <a href="/web/index.html" class="w-full rounded-xl border border-indigo-300 px-4 py-3 text-center font-semibold text-indigo-200 sm:w-auto">Try Web Demo</a>
+            <a href="/api/launch" class="w-full rounded-xl border border-slate-300 px-4 py-3 text-center font-semibold dark:border-slate-700 sm:w-auto">/api/launch</a>
+            <button id="share-btn" aria-label="Share launcher link" class="w-full rounded-xl border border-slate-300 px-4 py-3 font-semibold dark:border-slate-700 sm:w-auto">Share</button>
+          </div>
+          <p id="action-feedback" role="status" aria-live="polite" class="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            Actions ready.
+          </p>
+          <p class="mt-4 text-sm text-slate-500 dark:text-slate-400">Try on Hugging Face (soon)</p>
+        </div>
+        <div>
+          <img
+            src="/assets/gradio-ui-preview.svg"
+            alt="Screenshot of Audiobook Maker V7 Gradio UI"
+            class="w-full rounded-2xl border border-slate-200 shadow-2xl dark:border-slate-700"
+          />
+        </div>
+      </section>
+
+      <section class="mt-10">
+        <h3 class="text-2xl font-bold">Features</h3>
+        <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <h4 class="font-semibold">📱 Easy Mobile Mode</h4>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Single-tap generation flow for phone users.</p>
+          </article>
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <h4 class="font-semibold">💾 Resume + Memory</h4>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Drafts and projects are remembered between sessions.</p>
+          </article>
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <h4 class="font-semibold">🎤 Voice Browser</h4>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Preview many voices quickly with per-voice buttons.</p>
+          </article>
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <h4 class="font-semibold">☁️ JSONBlob Backup</h4>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Free cloud manifest backups for continuity.</p>
+          </article>
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <h4 class="font-semibold">📚 M4B Chapters</h4>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Build MP3 or chaptered M4B outputs.</p>
+          </article>
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <h4 class="font-semibold">🛡️ Reliable Pipeline</h4>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Resume-safe stages with atomic checkpoints.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="mt-10 grid gap-4 md:grid-cols-3">
+        <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <p class="text-xs uppercase tracking-wide text-slate-500">Community signal</p>
+          <p class="mt-2 text-2xl font-black">1k+ stars*</p>
+          <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">Open-source momentum across mobile and desktop users.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <p class="text-xs uppercase tracking-wide text-slate-500">Reliability tests</p>
+          <p class="mt-2 text-2xl font-black">12 passing</p>
+          <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">Core pipeline regression checks run continuously during refactors.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <p class="text-xs uppercase tracking-wide text-slate-500">Mode flexibility</p>
+          <p class="mt-2 text-2xl font-black">Easy + Advanced</p>
+          <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">Simple one-button flow for phones and full controls for power users.</p>
+        </article>
+      </section>
+
+      <section class="mt-10 grid gap-4 lg:grid-cols-2">
+        <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <h3 class="text-xl font-bold">Quick Demo</h3>
+          <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            Hear the difference between plain and dialogue-aware output. Add your own audio clips to
+            <code>/assets/demo-before.mp3</code> and <code>/assets/demo-after.mp3</code> for side-by-side playback.
+          </p>
+          <div class="mt-4 grid gap-3 sm:grid-cols-2">
+            <div class="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+              <p class="text-sm font-semibold">Before (single voice)</p>
+              <audio controls class="mt-2 w-full">
+                <source src="/assets/demo-before.mp3" type="audio/mpeg" />
+              </audio>
+            </div>
+            <div class="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+              <p class="text-sm font-semibold">After (dialogue-aware)</p>
+              <audio controls class="mt-2 w-full">
+                <source src="/assets/demo-after.mp3" type="audio/mpeg" />
+              </audio>
+            </div>
+          </div>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <h3 class="text-xl font-bold">Processing Time Estimator</h3>
+          <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Estimate generation time before you run a long job.</p>
+          <div class="mt-4 grid gap-3 sm:grid-cols-3">
+            <label class="text-sm">
+              Pages
+              <input id="calc-pages" type="number" min="1" value="20" class="mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-slate-700" />
+            </label>
+            <label class="text-sm">
+              Words / page
+              <input id="calc-words" type="number" min="120" value="280" class="mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-slate-700" />
+            </label>
+            <label class="text-sm">
+              Engine
+              <select id="calc-engine" class="mt-1 w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 dark:border-slate-700">
+                <option value="edge">edge-tts (cloud)</option>
+                <option value="kokoro">kokoro (offline)</option>
+              </select>
+            </label>
+          </div>
+          <p id="time-calc-result" class="mt-3 rounded-xl bg-slate-100 px-3 py-2 text-sm dark:bg-slate-950">Estimated generation: --</p>
+        </article>
+      </section>
+
+      <section class="mt-10 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+        <h3 class="text-xl font-bold">Easy vs Advanced Mode</h3>
+        <div class="mt-4 overflow-x-auto">
+          <table class="min-w-full text-left text-sm">
+            <thead>
+              <tr class="border-b border-slate-200 dark:border-slate-700">
+                <th class="px-3 py-2">Capability</th>
+                <th class="px-3 py-2">Easy Mobile Mode</th>
+                <th class="px-3 py-2">Advanced Mode</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="border-b border-slate-100 dark:border-slate-800"><td class="px-3 py-2">One-tap flow</td><td class="px-3 py-2">Yes</td><td class="px-3 py-2">Manual stages</td></tr>
+              <tr class="border-b border-slate-100 dark:border-slate-800"><td class="px-3 py-2">Character voice mapping</td><td class="px-3 py-2">Auto defaults</td><td class="px-3 py-2">Full control</td></tr>
+              <tr class="border-b border-slate-100 dark:border-slate-800"><td class="px-3 py-2">Output options</td><td class="px-3 py-2">MP3/M4B quick select</td><td class="px-3 py-2">All options + music</td></tr>
+              <tr><td class="px-3 py-2">Best for</td><td class="px-3 py-2">Phone users, speed</td><td class="px-3 py-2">Power users, deep tuning</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="quickstart" class="mt-10">
+        <h3 class="text-2xl font-bold">Quick Start</h3>
+        <div class="mt-4 grid gap-4 md:grid-cols-2">
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <p class="text-xs font-bold uppercase tracking-wide text-indigo-500">Step 1</p>
+            <p class="mt-2 font-semibold">Install dependencies</p>
+            <pre id="w-cmd-1" class="mt-2 overflow-x-auto rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-950"><code>pip install -r requirements.txt</code></pre>
+            <button data-copy="w-cmd-1" aria-label="Copy install dependencies command" class="copy-btn mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">Copy</button>
+          </article>
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <p class="text-xs font-bold uppercase tracking-wide text-indigo-500">Step 2</p>
+            <p class="mt-2 font-semibold">Run app</p>
+            <pre id="w-cmd-2" class="mt-2 overflow-x-auto rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-950"><code>python3 audiobook_creator_v7.py</code></pre>
+            <button data-copy="w-cmd-2" aria-label="Copy run app command" class="copy-btn mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">Copy</button>
+          </article>
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <p class="text-xs font-bold uppercase tracking-wide text-indigo-500">Step 3</p>
+            <p class="mt-2 font-semibold">Optional public share URL</p>
+            <pre id="w-cmd-3" class="mt-2 overflow-x-auto rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-950"><code>GRADIO_SHARE=1 python3 audiobook_creator_v7.py</code></pre>
+            <button data-copy="w-cmd-3" aria-label="Copy share URL command" class="copy-btn mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">Copy</button>
+          </article>
+          <article class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <p class="text-xs font-bold uppercase tracking-wide text-indigo-500">Step 4</p>
+            <p class="mt-2 font-semibold">Open in browser</p>
+            <pre id="w-cmd-4" class="mt-2 overflow-x-auto rounded-xl bg-slate-100 p-3 text-sm dark:bg-slate-950"><code>http://localhost:7860</code></pre>
+            <button data-copy="w-cmd-4" aria-label="Copy local app URL" class="copy-btn mt-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">Copy</button>
+          </article>
+        </div>
+      </section>
+
+      <section class="mt-10 grid gap-4 lg:grid-cols-3">
+        <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <h3 class="text-xl font-bold">Phone Workflow</h3>
+          <div class="mt-4 rounded-3xl border border-slate-300 bg-slate-100 p-4 dark:border-slate-700 dark:bg-slate-950">
+            <div class="mx-auto w-56 rounded-[2rem] border-4 border-slate-800 bg-slate-900 p-3 text-slate-100">
+              <p class="text-center text-xs text-slate-400">📱 Easy Mobile Mode</p>
+              <ol class="mt-3 space-y-2 text-sm">
+                <li>1. Paste/upload source</li>
+                <li>2. Tap one button</li>
+                <li>3. Watch live status</li>
+                <li>4. Download audiobook</li>
+              </ol>
+            </div>
+          </div>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <h3 class="text-xl font-bold">API + Health</h3>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <a href="/api/launch" class="rounded-lg bg-slate-900 px-3 py-1.5 text-sm text-white dark:bg-slate-100 dark:text-slate-900">/api/launch</a>
+            <a href="/api/health" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">/api/health</a>
+            <a href="/api/process" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700">/api/process</a>
+          </div>
+          <pre id="api-output" class="mt-3 max-h-64 overflow-auto rounded-xl bg-slate-100 p-3 text-xs dark:bg-slate-950"><code>Loading...</code></pre>
+          <p id="pwa-status" role="status" aria-live="polite" class="mt-2 text-xs text-slate-500 dark:text-slate-400">Checking launcher status...</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <h3 class="text-xl font-bold">Install on Mobile (PWA)</h3>
+          <div class="mt-3 space-y-3 text-sm">
+            <div>
+              <p class="font-semibold">Android (Chrome)</p>
+              <ol class="mt-1 list-decimal space-y-1 pl-5 text-slate-600 dark:text-slate-300">
+                <li>Open this page in Chrome.</li>
+                <li>Tap the install banner or browser menu.</li>
+                <li>Choose <span class="font-semibold">Install app</span>.</li>
+              </ol>
+            </div>
+            <div>
+              <p class="font-semibold">iPhone / iPad (Safari)</p>
+              <ol class="mt-1 list-decimal space-y-1 pl-5 text-slate-600 dark:text-slate-300">
+                <li>Tap the Share icon in Safari.</li>
+                <li>Select <span class="font-semibold">Add to Home Screen</span>.</li>
+                <li>Launch from your home screen for app-like mode.</li>
+              </ol>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="mt-10 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+        <h3 class="text-xl font-bold">FAQ</h3>
+        <div class="mt-4 space-y-3 text-sm">
+          <details class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            <summary class="cursor-pointer font-semibold">Does this run in a mobile browser without installing?</summary>
+            <p class="mt-2 text-slate-600 dark:text-slate-300">Yes. Install is optional; PWA mode just adds faster launching and better offline launcher caching.</p>
+          </details>
+          <details class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            <summary class="cursor-pointer font-semibold">Why did my large PDF fail?</summary>
+            <p class="mt-2 text-slate-600 dark:text-slate-300">Very large PDFs can exhaust memory/time limits. Split files into smaller chunks when possible.</p>
+          </details>
+          <details class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            <summary class="cursor-pointer font-semibold">Can I resume later on another device?</summary>
+            <p class="mt-2 text-slate-600 dark:text-slate-300">Yes. Enable free cloud memory backup and keep the generated JSONBlob URL for restore.</p>
+          </details>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      let installPromptEvent = null;
+      const installBanner = document.getElementById("install-banner");
+      const installNow = document.getElementById("install-now");
+      const installDismiss = document.getElementById("install-dismiss");
+      const statusNode = document.getElementById("pwa-status");
+      const actionFeedbackNode = document.getElementById("action-feedback");
+      const themeToggleBtn = document.getElementById("theme-toggle");
+      const showToast = (message, type = "info") => {
+        const toast = document.createElement("div");
+        const bg = type === "error" ? "#dc2626" : type === "success" ? "#059669" : "#334155";
+        toast.textContent = message;
+        toast.style.cssText = `position:fixed;left:12px;right:12px;bottom:72px;z-index:60;padding:12px;border-radius:10px;background:${bg};color:#fff;font-size:14px;box-shadow:0 8px 28px rgba(2,6,23,.45);`;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2600);
+      };
+      const haptic = (pattern = [20]) => {
+        if (navigator.vibrate) {
+          navigator.vibrate(pattern);
+        }
+      };
+      const setActionFeedback = (message) => {
+        if (actionFeedbackNode) {
+          actionFeedbackNode.textContent = message;
+        }
+      };
+      const syncThemePressedState = () => {
+        if (themeToggleBtn) {
+          themeToggleBtn.setAttribute("aria-pressed", document.documentElement.classList.contains("dark") ? "true" : "false");
+        }
+      };
+
+      const preferredTheme = localStorage.getItem("abm-theme");
+      const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      if (preferredTheme === "light" || (!preferredTheme && !prefersDark)) {
+        document.documentElement.classList.remove("dark");
+      }
+      syncThemePressedState();
+      themeToggleBtn.addEventListener("click", () => {
+        const html = document.documentElement;
+        html.classList.toggle("dark");
+        localStorage.setItem("abm-theme", html.classList.contains("dark") ? "dark" : "light");
+        syncThemePressedState();
+        setActionFeedback(`Theme changed to ${html.classList.contains("dark") ? "dark" : "light"} mode.`);
+      });
+
+      for (const btn of document.querySelectorAll(".copy-btn")) {
+        btn.addEventListener("click", async () => {
+          const target = document.getElementById(btn.dataset.copy);
+          const text = target ? target.innerText.trim() : "";
+          if (!text) return;
+          try {
+            await navigator.clipboard.writeText(text);
+            btn.textContent = "Copied";
+            haptic([15]);
+            showToast("Copied to clipboard", "success");
+            setActionFeedback("Copied command to clipboard.");
+            setTimeout(() => (btn.textContent = "Copy"), 1200);
+          } catch (_err) {
+            btn.textContent = "Failed";
+            haptic([30, 40, 30]);
+            showToast("Copy failed", "error");
+            setActionFeedback("Copy failed. Please copy manually.");
+          }
+        });
+      }
+
+      document.getElementById("share-btn").addEventListener("click", async () => {
+        const data = {
+          title: "Audiobook Maker V7",
+          text: "Open the mobile audiobook launcher",
+          url: window.location.href
+        };
+        try {
+          if (navigator.share) {
+            await navigator.share(data);
+            haptic([20]);
+            showToast("Share opened", "success");
+            setActionFeedback("Share opened.");
+          } else {
+            await navigator.clipboard.writeText(window.location.href);
+            haptic([15]);
+            showToast("Link copied to clipboard", "success");
+            setActionFeedback("Launcher link copied to clipboard.");
+          }
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            setActionFeedback("Share cancelled.");
+            return;
+          }
+          showToast("Share failed", "error");
+          setActionFeedback("Share failed. Please copy the URL manually.");
+        }
+      });
+
+      const calcPages = document.getElementById("calc-pages");
+      const calcWords = document.getElementById("calc-words");
+      const calcEngine = document.getElementById("calc-engine");
+      const calcResult = document.getElementById("time-calc-result");
+      const updateEstimate = () => {
+        const pages = Math.max(1, Number(calcPages.value) || 1);
+        const wordsPerPage = Math.max(120, Number(calcWords.value) || 120);
+        const chars = pages * wordsPerPage * 5;
+        const cps = calcEngine.value === "edge" ? 28 : 16;
+        const totalSec = Math.round(chars / cps);
+        const min = Math.floor(totalSec / 60);
+        const sec = totalSec % 60;
+        calcResult.textContent = `Estimated generation: ~${min}m ${sec}s (${calcEngine.value === "edge" ? "edge-tts" : "kokoro"})`;
+      };
+      for (const el of [calcPages, calcWords, calcEngine]) {
+        el.addEventListener("input", updateEstimate);
+      }
+      updateEstimate();
+
+      const ua = (navigator.userAgent || "").toLowerCase();
+      const isiOS = /iphone|ipad|ipod/.test(ua);
+      const isStandalone =
+        (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+        window.navigator.standalone === true;
+      if (isiOS && !isStandalone) {
+        installBanner.classList.remove("hidden");
+        installNow.classList.add("hidden");
+      }
+
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker
+          .register("/service-worker.js")
+          .then(() => (statusNode.textContent = "Offline cache enabled."))
+          .catch(() => (statusNode.textContent = "Service worker registration failed."));
+      }
+
+      window.addEventListener("beforeinstallprompt", (event) => {
+        event.preventDefault();
+        installPromptEvent = event;
+        installNow.classList.remove("hidden");
+        installBanner.classList.remove("hidden");
+      });
+      installNow.addEventListener("click", async () => {
+        if (!installPromptEvent) return;
+        await installPromptEvent.prompt();
+        installBanner.classList.add("hidden");
+        haptic([20]);
+        showToast("Install prompt opened", "info");
+      });
+      installDismiss.addEventListener("click", () => {
+        installBanner.classList.add("hidden");
+        haptic([10]);
+        showToast("Install dismissed", "info");
+      });
+
+      fetch("/api/launch")
+        .then((res) => res.json())
+        .then((data) => {
+          document.getElementById("api-output").textContent = JSON.stringify(data, null, 2);
+        })
+        .catch(() => {
+          document.getElementById("api-output").textContent = "Could not load /api/launch.";
+        });
+
+      fetch("/api/health")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && data.status === "ok") {
+            statusNode.textContent += " API healthy.";
+          }
+        })
+        .catch(() => {});
+    </script>
+  </body>
 </html>
