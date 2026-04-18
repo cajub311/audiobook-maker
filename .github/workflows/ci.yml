@@ -20,7 +20,7 @@ jobs:
       - name: Python syntax check
         run: python -m py_compile audiobook_creator_v7.py
 
-      - name: Run tests
+      - name: Run Python tests
         run: python -m unittest tests/test_reliability.py
 
       - name: Setup Node
@@ -28,8 +28,17 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Install Node deps
+        run: npm ci || npm install
+
+      - name: Run Node tests
+        run: npm test
+
       - name: API launcher smoke test
         run: node -e "const h=require('./api/launch'); const r={setHeader(){},status(){return this},json(v){if(!v || !v.steps){process.exit(1)}; console.log('ok')}}; h({},r)"
 
       - name: API health smoke test
         run: node -e "const h=require('./api/health'); const r={setHeader(){},status(){return this},json(v){if(v.status!=='ok'){process.exit(1)}; console.log('ok')}}; h({},r)"
+
+      - name: API voices smoke test
+        run: node -e "const h=require('./api/voices'); const r={setHeader(){},status(){return this},json(v){if(!v || !v.voices || v.voices.length<5){process.exit(1)}; console.log('ok',v.count)}}; h({},r)"

@@ -1,0 +1,15 @@
+{
+  "name": "audiobook-maker-web",
+  "version": "7.1.0",
+  "private": true,
+  "description": "Serverless backend + static web client for the Audiobook Maker web demo.",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "test": "node --test tests/node/*.js"
+  },
+  "dependencies": {
+    "msedge-tts": "^2.0.5"
+  }
+}

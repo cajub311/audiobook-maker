@@ -4,6 +4,7 @@ __pycache__/
 *.pyd
 .Python
 .pytest_cache/
+node_modules/
 
 # Runtime outputs
 manifests/

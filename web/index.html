@@ -2,250 +2,537 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Audiobook Maker - Web Demo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#4f46e5" />
+    <title>Audiobook Maker — Free Browser TTS</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <style>
-      :root { color-scheme: dark; }
+      :root {
+        color-scheme: dark;
+        --bg: #0b1020;
+        --panel: rgba(15, 23, 42, 0.75);
+        --panel-border: rgba(148, 163, 184, 0.2);
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --brand: #4f46e5;
+        --brand-hover: #4338ca;
+        --brand-soft: rgba(99, 102, 241, 0.2);
+        --success: #22c55e;
+        --danger: #ef4444;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 100%; background: var(--bg); color: var(--text); }
       body {
-        margin: 0;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        background: #0b1020;
-        color: #e2e8f0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+        line-height: 1.5;
+        min-height: 100vh;
+        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
       }
-      main { max-width: 900px; margin: 0 auto; padding: 16px 16px 96px; }
-      .card {
-        background: rgba(15, 23, 42, 0.75);
-        border: 1px solid rgba(148, 163, 184, 0.2);
-        border-radius: 14px;
-        padding: 14px;
-        margin-bottom: 12px;
-      }
-      textarea {
-        width: 100%;
-        min-height: 220px;
-        border-radius: 12px;
-        border: 1px solid rgba(148, 163, 184, 0.3);
-        background: rgba(15, 23, 42, 0.7);
-        color: #e2e8f0;
-        padding: 10px;
-        box-sizing: border-box;
-      }
-      .grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      button {
-        min-height: 52px;
-        border: 0;
-        border-radius: 12px;
-        font-weight: 700;
-        cursor: pointer;
-      }
-      .primary { background: #4f46e5; color: #fff; }
-      .secondary { background: #1e293b; color: #e2e8f0; border: 1px solid rgba(148, 163, 184, 0.25); }
+      main { max-width: 900px; margin: 0 auto; padding: 16px 16px 120px; }
+      header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
+      header h1 { font-size: 1.4rem; font-weight: 800; letter-spacing: -0.01em; }
+      header .sub { color: var(--muted); font-size: 0.85rem; }
+      header a { color: var(--muted); text-decoration: none; border: 1px solid var(--panel-border); padding: 6px 10px; border-radius: 999px; font-size: 0.82rem; }
+      header a:hover { color: var(--text); border-color: #6366f1; }
       .status {
-        position: sticky;
-        top: 0;
-        z-index: 20;
+        position: sticky; top: 8px; z-index: 20;
         background: linear-gradient(135deg, #4f46e5, #7c3aed);
-        border-radius: 10px;
-        padding: 10px;
-        margin-bottom: 12px;
+        border-radius: 14px; padding: 12px 14px; margin-bottom: 14px;
+        box-shadow: 0 10px 30px rgba(79, 70, 229, 0.25);
+        font-size: 0.95rem; font-weight: 500;
       }
-      @media (max-width: 768px) {
-        .grid { grid-template-columns: 1fr; }
+      .progress-track { margin-top: 8px; height: 6px; background: rgba(255,255,255,0.2); border-radius: 999px; overflow: hidden; }
+      .progress-bar { height: 100%; width: 0%; background: #fff; transition: width 0.25s ease; }
+      .card { background: var(--panel); border: 1px solid var(--panel-border); border-radius: 16px; padding: 16px; margin-bottom: 14px; }
+      .card h2 { font-size: 1rem; margin-bottom: 10px; font-weight: 700; letter-spacing: 0.01em; }
+      label { display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 6px; }
+      textarea, select, input[type="number"], input[type="range"] {
+        width: 100%;
+        background: rgba(2, 6, 23, 0.6);
+        color: var(--text);
+        border: 1px solid var(--panel-border);
+        border-radius: 12px;
+        padding: 10px 12px;
+        font: inherit;
+      }
+      textarea { min-height: 220px; resize: vertical; font-size: 0.95rem; }
+      select { appearance: none; padding-right: 36px; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%; background-size: 6px 6px, 6px 6px; background-repeat: no-repeat; }
+      .row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+      .button-row { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin-top: 12px; }
+      button {
+        min-height: 52px; border: 0; border-radius: 14px; font-weight: 700; font-size: 0.95rem;
+        cursor: pointer; padding: 0 18px; transition: transform 0.08s, background 0.18s;
+      }
+      button:active:not(:disabled) { transform: translateY(1px); }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
+      .primary { background: var(--brand); color: #fff; }
+      .primary:hover:not(:disabled) { background: var(--brand-hover); }
+      .secondary { background: #1e293b; color: var(--text); border: 1px solid var(--panel-border); }
+      .danger { background: transparent; color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.4); }
+      .stats { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; font-size: 0.82rem; color: var(--muted); }
+      .stats strong { color: var(--text); }
+      .audio-player audio { width: 100%; margin-top: 12px; }
+      .voice-preview { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+      .voice-preview button { flex: 1; min-height: 44px; font-size: 0.88rem; }
+      .tip { font-size: 0.8rem; color: var(--muted); margin-top: 6px; }
+      .toggle-details summary { cursor: pointer; font-size: 0.88rem; color: var(--muted); padding: 6px 0; }
+      .toggle-details[open] summary { color: var(--text); }
+      .range-label { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+      .error { background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); color: #fecaca; border-radius: 12px; padding: 10px 12px; font-size: 0.88rem; margin-top: 8px; }
+      .success-banner { background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.4); color: #bbf7d0; border-radius: 12px; padding: 10px 12px; font-size: 0.9rem; margin-top: 8px; }
+      @media (max-width: 540px) {
+        main { padding-bottom: 140px; }
+        header h1 { font-size: 1.2rem; }
       }
     </style>
   </head>
   <body>
     <main>
-      <h1>Audiobook Maker Web Demo</h1>
-      <p>Demo mode creates a short preview (about 5 minutes max) directly in browser. Full generation still uses Python app.</p>
+      <header>
+        <div>
+          <h1>Audiobook Maker</h1>
+          <p class="sub">Paste text. Pick a voice. Get a real MP3 audiobook. No sign-up, no keys.</p>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <a href="/website/index.html">Launcher</a>
+          <a href="https://github.com/cajub311/audiobook-maker-" target="_blank" rel="noreferrer">GitHub</a>
+        </div>
+      </header>
 
-      <div id="status" class="status">Ready.</div>
+      <div id="status" class="status">
+        Ready. Paste some text below and press <strong>Create audiobook</strong>.
+        <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+      </div>
 
       <section class="card">
-        <label for="input"><strong>Paste text</strong></label>
-        <input id="file-input" type="file" accept=".txt,text/plain" style="margin: 8px 0 10px; display: block;" />
-        <textarea id="input" placeholder="Paste text for a short browser demo..."></textarea>
-        <p id="stats" style="margin: 8px 0 0; font-size: 13px; opacity: 0.9;">Words: 0 · Est: 0m 0s</p>
-      </section>
-
-      <section class="card">
-        <div class="grid">
-          <button id="demo-generate" class="primary">Generate 5-minute demo</button>
-          <button id="demo-speak" class="secondary">Play in browser voice</button>
-          <button id="demo-share" class="secondary">Share demo text</button>
-          <button id="demo-save" class="secondary">Save draft locally</button>
-          <button id="demo-download" class="secondary">Download demo text</button>
+        <h2>1 &middot; Your text</h2>
+        <label for="text-input">Paste book text, article, or upload a <code>.txt</code> file</label>
+        <input id="file-input" type="file" accept=".txt,text/plain,.md,text/markdown" style="margin-bottom: 10px;" />
+        <textarea id="text-input" placeholder="Paste a chapter or paste the whole book. Long inputs are split automatically."></textarea>
+        <div class="stats">
+          <span>Words: <strong id="stat-words">0</strong></span>
+          <span>Chars: <strong id="stat-chars">0</strong></span>
+          <span>Chunks: <strong id="stat-chunks">0</strong></span>
+          <span>Est. audio: <strong id="stat-audio">0m 0s</strong></span>
         </div>
       </section>
 
       <section class="card">
-        <h3>Output</h3>
-        <pre id="output">No demo generated yet.</pre>
+        <h2>2 &middot; Voice & narration</h2>
+        <div class="row">
+          <div>
+            <label for="voice-select">Voice</label>
+            <select id="voice-select"><option>Loading voices...</option></select>
+            <div class="voice-preview">
+              <button id="btn-preview" class="secondary" type="button" aria-label="Preview selected voice">Preview voice</button>
+              <button id="btn-stop-preview" class="danger" type="button" aria-label="Stop preview" style="flex: 0 1 auto;">Stop</button>
+            </div>
+          </div>
+          <div>
+            <label for="rate-input">Reading speed</label>
+            <input id="rate-input" type="range" min="-40" max="40" step="5" value="0" />
+            <div class="range-label">
+              <span>Slower</span>
+              <span id="rate-display">Normal (+0%)</span>
+              <span>Faster</span>
+            </div>
+          </div>
+        </div>
+        <details class="toggle-details">
+          <summary>Advanced narration options</summary>
+          <div class="row" style="margin-top: 8px;">
+            <div>
+              <label for="pitch-input">Pitch</label>
+              <input id="pitch-input" type="range" min="-40" max="40" step="5" value="0" />
+              <div class="range-label"><span>Lower</span><span id="pitch-display">0 Hz</span><span>Higher</span></div>
+            </div>
+            <div>
+              <label for="concurrency-input">Parallel requests</label>
+              <input id="concurrency-input" type="number" min="1" max="8" value="4" />
+              <p class="tip">Higher = faster but may rate-limit. 4 is a safe default.</p>
+            </div>
+            <div>
+              <label for="format-select">Audio quality</label>
+              <select id="format-select">
+                <option value="mp3">MP3 48 kbps (smaller files)</option>
+                <option value="mp3-high">MP3 96 kbps (higher quality)</option>
+              </select>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section class="card">
+        <h2>3 &middot; Create audiobook</h2>
+        <div class="button-row">
+          <button id="btn-create" class="primary" type="button">Create audiobook</button>
+          <button id="btn-cancel" class="secondary" type="button" disabled>Cancel</button>
+          <button id="btn-sample" class="secondary" type="button">Try sample text</button>
+          <button id="btn-clear" class="secondary" type="button">Clear</button>
+        </div>
+        <p id="error-panel" class="error" hidden></p>
+      </section>
+
+      <section class="card audio-player" id="output-card" hidden>
+        <h2>Your audiobook</h2>
+        <audio id="audio-output" controls preload="metadata"></audio>
+        <div class="stats">
+          <span>Size: <strong id="stat-size">0 KB</strong></span>
+          <span>Chunks: <strong id="stat-done">0</strong></span>
+          <span>Generation time: <strong id="stat-time">0s</strong></span>
+        </div>
+        <div class="button-row">
+          <a id="download-link" class="primary" style="min-height:52px;display:flex;align-items:center;justify-content:center;text-decoration:none;" download="audiobook.mp3">Download MP3</a>
+          <button id="btn-share" class="secondary" type="button">Share / Copy link</button>
+        </div>
+        <p class="tip">MP3 frames from each chunk are concatenated. Any audio player will handle this as one file.</p>
+      </section>
+
+      <section class="card">
+        <h2>Tips</h2>
+        <ul style="padding-left: 20px; font-size: 0.9rem; color: var(--muted);">
+          <li>Works entirely in your browser. Audio is generated on-demand through Microsoft Edge neural voices.</li>
+          <li>Long chapters are auto-split on paragraph &amp; sentence boundaries for cleaner pacing.</li>
+          <li>If generation is slow, lower the parallel request count or the input size.</li>
+          <li>For huge books (10k+ words) you may want to batch one chapter at a time.</li>
+        </ul>
       </section>
     </main>
 
     <script type="module">
-      import { makeDemoProject } from "/web/processor.js";
+      import { chunkText, describeChunks } from "/web/chunker.js";
+      import { fetchVoices, synthesizeChunk } from "/web/api-client.js";
+      import { makeAudiobook } from "/web/audiobook-maker.js";
       import { loadDraft, saveDraft } from "/web/storage.js";
-      import { pollCloudProcess, startCloudProcess } from "/web/api-client.js";
 
-      const input = document.getElementById("input");
-      const fileInput = document.getElementById("file-input");
-      const status = document.getElementById("status");
-      const output = document.getElementById("output");
-      const stats = document.getElementById("stats");
-      const generateBtn = document.getElementById("demo-generate");
-      let currentDemo = null;
-      let isGenerating = false;
-      const generateLabelIdle = "Generate 5-minute demo";
+      const $ = (id) => document.getElementById(id);
+      const statusEl = $("status");
+      const progressBar = $("progress-bar");
+      const textInput = $("text-input");
+      const fileInput = $("file-input");
+      const voiceSelect = $("voice-select");
+      const rateInput = $("rate-input");
+      const pitchInput = $("pitch-input");
+      const concurrencyInput = $("concurrency-input");
+      const formatSelect = $("format-select");
+      const rateDisplay = $("rate-display");
+      const pitchDisplay = $("pitch-display");
+      const statWords = $("stat-words");
+      const statChars = $("stat-chars");
+      const statChunks = $("stat-chunks");
+      const statAudio = $("stat-audio");
+      const statSize = $("stat-size");
+      const statDone = $("stat-done");
+      const statTime = $("stat-time");
+      const audioOutput = $("audio-output");
+      const outputCard = $("output-card");
+      const downloadLink = $("download-link");
+      const errorPanel = $("error-panel");
+      const btnCreate = $("btn-create");
+      const btnCancel = $("btn-cancel");
+      const btnPreview = $("btn-preview");
+      const btnStopPreview = $("btn-stop-preview");
+      const btnSample = $("btn-sample");
+      const btnClear = $("btn-clear");
+      const btnShare = $("btn-share");
 
-      const setStatus = (text) => { status.textContent = text; };
-      const setGeneratingState = (busy) => {
-        isGenerating = !!busy;
-        generateBtn.disabled = !!busy;
-        generateBtn.textContent = busy ? "Generating..." : generateLabelIdle;
-        generateBtn.setAttribute("aria-busy", busy ? "true" : "false");
+      const state = {
+        voices: [],
+        defaultVoice: null,
+        abortController: null,
+        previewController: null,
+        previewUrl: null,
+        resultUrl: null,
       };
+
+      const setStatus = (html, { progress } = {}) => {
+        statusEl.innerHTML = html + '<div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>';
+        const bar = document.getElementById("progress-bar");
+        if (bar && typeof progress === "number") bar.style.width = Math.max(0, Math.min(100, progress)) + "%";
+      };
+
+      const setError = (message) => {
+        if (!message) {
+          errorPanel.hidden = true;
+          errorPanel.textContent = "";
+          return;
+        }
+        errorPanel.hidden = false;
+        errorPanel.textContent = message;
+      };
+
+      const formatMmSs = (seconds) => {
+        const s = Math.max(0, Math.round(Number(seconds) || 0));
+        return `${Math.floor(s / 60)}m ${s % 60}s`;
+      };
+      const formatBytes = (bytes) => {
+        const n = Number(bytes) || 0;
+        if (n > 1_000_000) return (n / 1_000_000).toFixed(2) + " MB";
+        if (n > 1_000) return (n / 1_000).toFixed(1) + " KB";
+        return n + " B";
+      };
+
       const updateStats = () => {
-        const text = String(input.value || "").trim();
+        const text = String(textInput.value || "").trim();
         const words = text ? text.split(/\s+/).length : 0;
         const chars = text.length;
-        const sec = Math.max(0, Math.round(chars / 28));
-        const min = Math.floor(sec / 60);
-        const rem = sec % 60;
-        stats.textContent = `Words: ${words} · Chars: ${chars} · Est: ${min}m ${rem}s`;
+        const chunks = chunkText(text);
+        const estSec = Math.round((chars / 15)); // neural voice at ~15 cps
+        statWords.textContent = words.toLocaleString();
+        statChars.textContent = chars.toLocaleString();
+        statChunks.textContent = chunks.length.toLocaleString();
+        statAudio.textContent = formatMmSs(estSec);
       };
 
-      input.value = loadDraft() || "";
-      updateStats();
-      input.addEventListener("input", updateStats);
+      const updateRateDisplay = () => {
+        const v = Number(rateInput.value) || 0;
+        const sign = v > 0 ? "+" : "";
+        rateDisplay.textContent = v === 0 ? "Normal (+0%)" : `${sign}${v}%`;
+      };
+      const updatePitchDisplay = () => {
+        const v = Number(pitchInput.value) || 0;
+        const sign = v > 0 ? "+" : "";
+        pitchDisplay.textContent = v === 0 ? "0 Hz" : `${sign}${v} Hz`;
+      };
+
+      textInput.addEventListener("input", () => {
+        updateStats();
+        saveDraft(textInput.value);
+      });
+      rateInput.addEventListener("input", updateRateDisplay);
+      pitchInput.addEventListener("input", updatePitchDisplay);
 
       fileInput.addEventListener("change", async () => {
         const file = fileInput.files && fileInput.files[0];
         if (!file) return;
-        const text = await file.text();
-        input.value = text;
-        updateStats();
-        setStatus(`Loaded ${file.name} into demo editor.`);
-      });
-
-      document.getElementById("demo-save").addEventListener("click", () => {
-        const saved = saveDraft(input.value || "");
-        if (saved && saved.ok) {
-          setStatus("Draft saved locally.");
+        if (file.size > 5 * 1024 * 1024) {
+          setError("File is larger than 5 MB. Please paste in smaller chunks.");
           return;
         }
-        const detail = (saved && saved.error) ? ` (${saved.error})` : "";
-        setStatus(`Could not save draft locally${detail}.`);
-      });
-
-      document.getElementById("demo-generate").addEventListener("click", async () => {
-        if (isGenerating) {
-          return;
-        }
-        if (!(input.value || "").trim()) {
-          setStatus("Paste some text first.");
-          return;
-        }
-        setGeneratingState(true);
         try {
-          setStatus("Creating browser demo project...");
-          currentDemo = makeDemoProject(input.value);
-          output.textContent = JSON.stringify(currentDemo.summary, null, 2);
-          const start = await startCloudProcess({ text: currentDemo.previewText, demoMode: true });
-          if (!start.ok || !start.data || !start.data.job_id) {
-            setStatus("Demo ready locally. Cloud API unavailable right now.");
-            return;
+          const text = await file.text();
+          textInput.value = text;
+          updateStats();
+          saveDraft(text);
+          setStatus(`Loaded <strong>${file.name}</strong> (${formatBytes(file.size)}).`);
+          setError(null);
+        } catch (err) {
+          setError("Could not read file: " + (err && err.message ? err.message : err));
+        }
+      });
+
+      btnSample.addEventListener("click", () => {
+        textInput.value = `Chapter One — The Opening\n\n`
+          + `It was the best of times, it was the worst of times. A long road stretched ahead `
+          + `of the travelers, and the wind whispered old stories through the pines. `
+          + `"Do you think we'll make it before sundown?" Alice asked.\n\n`
+          + `"If we keep a steady pace," Bob answered, "we will."\n\n`
+          + `The Audiobook Maker turns any text into spoken audio using neural voices. `
+          + `Try different voices, adjust the speed, and download your audiobook as an MP3.`;
+        updateStats();
+        saveDraft(textInput.value);
+        setStatus("Loaded sample text. Press <strong>Create audiobook</strong>.");
+        setError(null);
+      });
+
+      btnClear.addEventListener("click", () => {
+        textInput.value = "";
+        updateStats();
+        saveDraft("");
+        setStatus("Cleared.");
+        setError(null);
+        outputCard.hidden = true;
+      });
+
+      btnCancel.addEventListener("click", () => {
+        if (state.abortController) state.abortController.abort();
+      });
+
+      const populateVoices = async () => {
+        setStatus("Loading voices...");
+        const { voices, default: defaultVoice, source, error } = await fetchVoices();
+        state.voices = voices;
+        state.defaultVoice = defaultVoice;
+        voiceSelect.innerHTML = "";
+
+        const groups = {};
+        for (const v of voices) {
+          const locale = v.locale || "other";
+          (groups[locale] ||= []).push(v);
+        }
+        const localeOrder = Object.keys(groups).sort((a, b) => {
+          if (a.startsWith("en-") && !b.startsWith("en-")) return -1;
+          if (!a.startsWith("en-") && b.startsWith("en-")) return 1;
+          return a.localeCompare(b);
+        });
+        for (const locale of localeOrder) {
+          const group = document.createElement("optgroup");
+          group.label = locale;
+          for (const v of groups[locale]) {
+            const opt = document.createElement("option");
+            opt.value = v.id;
+            opt.textContent = v.label;
+            if (v.id === defaultVoice) opt.selected = true;
+            group.appendChild(opt);
           }
-          const jobId = start.data.job_id;
-          setStatus(`Cloud demo job queued (${jobId}). Polling progress...`);
-          let completed = false;
-          for (let attempt = 0; attempt < 24; attempt += 1) {
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            const polled = await pollCloudProcess(jobId);
-            if (!polled.ok || !polled.data) {
-              continue;
-            }
-            const p = Number(polled.data.progress_percent || 0);
-            const eta = Number(polled.data.eta_seconds || 0);
-            setStatus(`Cloud job ${polled.data.status}: ${p}% · ETA ${eta}s`);
-            if (polled.data.status === "completed") {
-              completed = true;
-              break;
-            }
+          voiceSelect.appendChild(group);
+        }
+        if (source === "fallback") {
+          setStatus(`Loaded ${voices.length} fallback voices (live catalog unavailable: ${error || "unknown"}).`);
+        } else {
+          setStatus(`Loaded ${voices.length} neural voices. Pick one and generate!`);
+        }
+      };
+
+      const previewSample = "This is a preview of how the selected voice sounds when narrating your audiobook.";
+      btnPreview.addEventListener("click", async () => {
+        if (state.previewController) state.previewController.abort();
+        state.previewController = new AbortController();
+        if (state.previewUrl) { URL.revokeObjectURL(state.previewUrl); state.previewUrl = null; }
+        btnPreview.disabled = true;
+        btnPreview.textContent = "Previewing...";
+        setStatus(`Previewing <strong>${voiceSelect.value}</strong>...`);
+        setError(null);
+        try {
+          const blob = await synthesizeChunk(previewSample, {
+            voice: voiceSelect.value,
+            rate: Number(rateInput.value) / 100,
+            pitch: Number(pitchInput.value),
+            format: "mp3",
+            signal: state.previewController.signal,
+          });
+          state.previewUrl = URL.createObjectURL(blob);
+          const audio = new Audio(state.previewUrl);
+          audio.addEventListener("ended", () => setStatus("Preview finished."));
+          audio.play().catch(() => {});
+          setStatus(`Playing preview of <strong>${voiceSelect.value}</strong>.`);
+        } catch (err) {
+          if (err.name !== "AbortError") setError("Preview failed: " + (err.message || err));
+        } finally {
+          btnPreview.disabled = false;
+          btnPreview.textContent = "Preview voice";
+          state.previewController = null;
+        }
+      });
+
+      btnStopPreview.addEventListener("click", () => {
+        if (state.previewController) state.previewController.abort();
+        if (state.previewUrl) {
+          URL.revokeObjectURL(state.previewUrl);
+          state.previewUrl = null;
+        }
+        setStatus("Preview stopped.");
+      });
+
+      btnCreate.addEventListener("click", async () => {
+        const text = String(textInput.value || "").trim();
+        if (!text) {
+          setError("Paste or upload some text first.");
+          return;
+        }
+        setError(null);
+        outputCard.hidden = true;
+        if (state.resultUrl) { URL.revokeObjectURL(state.resultUrl); state.resultUrl = null; }
+        if (state.abortController) state.abortController.abort();
+        state.abortController = new AbortController();
+
+        btnCreate.disabled = true;
+        btnCreate.textContent = "Generating...";
+        btnCancel.disabled = false;
+
+        const voice = voiceSelect.value;
+        const rate = Number(rateInput.value) / 100;
+        const pitch = Number(pitchInput.value);
+        const concurrency = Math.max(1, Math.min(8, Number(concurrencyInput.value) || 4));
+        const format = formatSelect.value;
+
+        const chunks = chunkText(text);
+        setStatus(`Preparing <strong>${chunks.length}</strong> chunks with <strong>${voice}</strong>...`, { progress: 0 });
+
+        try {
+          const result = await makeAudiobook({
+            text,
+            voice,
+            rate,
+            pitch,
+            format,
+            concurrency,
+            onProgress: ({ completed, total, percent, bytes }) => {
+              setStatus(`Synthesizing chunk <strong>${completed}/${total}</strong> (${percent}%) &middot; ${formatBytes(bytes)} so far`, { progress: percent });
+            },
+            signal: state.abortController.signal,
+          });
+          if (!result.blob) {
+            throw new Error("No audio produced (text may be empty).");
           }
-          if (!completed) {
-            setStatus("Cloud demo is taking longer than expected. Please retry in a moment.");
+          state.resultUrl = URL.createObjectURL(result.blob);
+          audioOutput.src = state.resultUrl;
+          downloadLink.href = state.resultUrl;
+          downloadLink.download = suggestFilename(voice);
+          outputCard.hidden = false;
+          statSize.textContent = formatBytes(result.blob.size);
+          statDone.textContent = `${result.stats.count} / ${result.stats.count}`;
+          statTime.textContent = (result.stats.durationMs / 1000).toFixed(1) + "s";
+          setStatus(
+            `Done! <strong>${result.stats.count}</strong> chunks in <strong>${(result.stats.durationMs / 1000).toFixed(1)}s</strong> &middot; ${formatBytes(result.blob.size)}.`,
+            { progress: 100 }
+          );
+          audioOutput.scrollIntoView({ behavior: "smooth", block: "center" });
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            setStatus("Generation cancelled.");
+          } else {
+            console.error(err);
+            setError("Generation failed: " + (err && err.message ? err.message : err));
+            setStatus("Generation failed. Check the error above.", { progress: 0 });
           }
         } finally {
-          setGeneratingState(false);
+          btnCreate.disabled = false;
+          btnCreate.textContent = "Create audiobook";
+          btnCancel.disabled = true;
+          state.abortController = null;
         }
       });
 
-      document.getElementById("demo-speak").addEventListener("click", () => {
-        if (!currentDemo) {
-          setStatus("Generate demo first.");
+      btnShare.addEventListener("click", async () => {
+        if (!state.resultUrl) {
+          setError("Generate an audiobook first.");
           return;
-        }
-        if (!("speechSynthesis" in window)) {
-          setStatus("Browser speech synthesis not available.");
-          return;
-        }
-        const utterance = new SpeechSynthesisUtterance(currentDemo.previewText);
-        utterance.rate = 1.0;
-        utterance.onstart = () => setStatus("Playing browser voice preview...");
-        utterance.onend = () => setStatus("Playback finished.");
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(utterance);
-      });
-
-      document.getElementById("demo-share").addEventListener("click", async () => {
-        if (!currentDemo) {
-          setStatus("Generate demo first.");
-          return;
-        }
-        const shareText = currentDemo.previewText.slice(0, 1000);
-        if (navigator.share) {
-          try {
-            await navigator.share({
-              title: "Audiobook Maker demo text",
-              text: shareText,
-            });
-            setStatus("Shared demo text.");
-            return;
-          } catch (err) {
-            if (err && err.name === "AbortError") {
-              setStatus("Share cancelled.");
-              return;
-            }
-            // Fall through to clipboard fallback.
-          }
         }
         try {
-          await navigator.clipboard.writeText(shareText);
-          setStatus("Copied demo text to clipboard.");
+          if (navigator.share) {
+            const blob = await fetch(state.resultUrl).then((r) => r.blob());
+            const file = new File([blob], suggestFilename(voiceSelect.value), { type: "audio/mpeg" });
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+              await navigator.share({ files: [file], title: "Audiobook" });
+              setStatus("Shared audiobook file.");
+              return;
+            }
+          }
+          await navigator.clipboard.writeText(window.location.href);
+          setStatus("Copied page URL. Share the audiobook by downloading the MP3.");
         } catch (err) {
-          const detail = err instanceof Error ? err.message : String(err);
-          setStatus(`Share failed: ${detail}`);
+          if (err && err.name === "AbortError") return;
+          setError("Share failed: " + (err && err.message ? err.message : err));
         }
       });
 
-      document.getElementById("demo-download").addEventListener("click", () => {
-        if (!currentDemo) {
-          setStatus("Generate demo first.");
-          return;
-        }
-        const blob = new Blob([currentDemo.previewText], { type: "text/plain;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "audiobook-demo.txt";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-        setStatus("Demo text downloaded.");
-      });
+      function suggestFilename(voice) {
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 16);
+        const clean = String(voice || "audiobook").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+        return `audiobook-${clean}-${stamp}.mp3`;
+      }
+
+      textInput.value = loadDraft() || "";
+      updateStats();
+      updateRateDisplay();
+      updatePitchDisplay();
+      populateVoices();
+
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("/service-worker.js").catch(() => {});
+      }
     </script>
   </body>
 </html>

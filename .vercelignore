@@ -9,3 +9,10 @@ app_state.json
 __pycache__/
 tests/
 *.pyc
+audiobook_creator_v7.py
+nlp/
+parsers/
+tts/
+cache/
+requirements.txt
+config.py

@@ -1,16 +1,32 @@
 {
   "cleanUrls": true,
   "trailingSlash": false,
-  "rewrites": [
-    { "source": "/web/:path*", "destination": "/web/:path*" },
-    { "source": "/(.*)", "destination": "/index.html" }
-  ],
+  "functions": {
+    "api/tts.js": {
+      "maxDuration": 30,
+      "memory": 512
+    },
+    "api/voices.js": {
+      "maxDuration": 5
+    },
+    "api/process.js": {
+      "maxDuration": 10
+    }
+  },
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+      ]
+    },
+    {
+      "source": "/api/tts",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
       ]
     }
   ]

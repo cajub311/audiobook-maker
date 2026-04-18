@@ -1,37 +1,67 @@
-# Audiobook Creator v7
+# Audiobook Maker
 
-Convert any book (EPUB, PDF, TXT, or URL) into a finished audiobook MP3 or M4B file using AI voice synthesis.
+Turn any text into a real MP3 audiobook — in your browser, free, with no sign-up and no API key.
 
-## Features
-- Multi-voice dialogue detection (narrator vs. characters get different voices)
-- Offline TTS support -- no API key required for basic use
-- Smart caching -- interrupted jobs resume instantly
-- Mobile-first Gradio UI with live progress updates
-- M4B chapter markers with accurate timestamps
-- Pronunciation dictionary support
+This repo ships **two** ways to use it:
 
-## Quick Start (Local)
+1. **Web audiobook maker** (`/web/index.html`) — a serverless app that runs on Vercel. It calls Microsoft Edge's neural Read Aloud API via a small Node backend and streams real MP3 audio back to the browser. Perfect for quick audiobook generation on a phone or laptop.
+2. **Desktop Python app** (`audiobook_creator_v7.py`) — a fuller Gradio UI for advanced users who want multi-voice dialogue, chapter markers, resume support, and offline generation via Kokoro.
+
+## Web audiobook maker (default)
+
+Open `/web/index.html` after deploying, paste text, pick a voice, press **Create audiobook**, and download the MP3.
+
+- 30+ hand-picked Microsoft neural voices across 10+ languages.
+- Long inputs are auto-split on paragraph/sentence boundaries.
+- Chunks render **in parallel** (configurable, default 4) for fast generation.
+- Voice preview, reading speed, pitch control.
+- Saves your draft locally and restores it on reload.
+- Works as a PWA (installable, offline-friendly shell).
+
+### API routes
+
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `GET /api/voices` | | List curated neural voices (`{ voices, default }`). |
+| `POST /api/tts` | | Synthesize one chunk. Body: `{ text, voice, rate, pitch, volume, format }`. Returns `audio/mpeg`. |
+| `GET /api/health` | | Service health check. |
+| `GET /api/launch` | | Launcher metadata & instructions. |
+
+Example:
+
+```bash
+curl -X POST https://your-deployment.vercel.app/api/tts \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Hello, this is an audiobook.","voice":"en-US-AvaMultilingualNeural"}' \
+  --output sample.mp3
+```
+
+### Deploy to Vercel
+
+1. Import this repo at [vercel.com/new](https://vercel.com/new).
+2. Node 18+ is required. No environment variables needed.
+3. Click Deploy. `npm install` automatically brings in `msedge-tts`.
+
+### Run locally
+
+```bash
+npm install
+npx vercel dev      # or: npm run test
+```
+
+The included tests exercise the TTS handler's validation and run against `/api/tts`, `/api/voices`, and the text chunker.
+
+## Desktop Python app (advanced)
+
 ```bash
 pip install -r requirements.txt
 python audiobook_creator_v7.py
 ```
-Open http://localhost:7860 in your browser.
-Login: admin / audiobook2024
 
-## Deploy to Hugging Face Spaces
-1. Create a new Space at huggingface.co (select Gradio)
-2. Connect your GitHub repo cajub311/audiobook-maker-
-3. Set Space hardware to CPU Basic (free)
-4. Your app will be live at https://cajub311-audiobook-maker.hf.space
+Open http://localhost:7860 (default login `admin / audiobook2024`).
 
-## Deploy Frontend to Vercel
-1. Import cajub311/audiobook-maker- at vercel.com/new
-2. Add environment variable: GRADIO_SERVER_URL = your HF Space URL
-3. Deploy -- no build settings needed
-
-## Auth
-Default credentials: admin / audiobook2024
-Change in audiobook_creator_v7.py at the demo.launch() call.
+Features: multi-voice dialogue, M4B with chapter markers, pronunciation dictionary, PDF/EPUB/URL ingest, resume-safe caching.
 
 ## License
+
 MIT
