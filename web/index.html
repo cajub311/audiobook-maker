@@ -167,14 +167,13 @@
         </details>
 
         <details class="toggle-details" id="speakers-details">
-          <summary>Multi-voice narration <span id="speakers-count" style="color: #c7d2fe; font-weight: 600;">(off)</span></summary>
+          <summary style="display:flex;align-items:center;gap:0;">Multi-voice narration&nbsp;<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;margin-left:4px;" onclick="event.stopPropagation()"><input type="checkbox" id="multi-voice-toggle" style="accent-color:#818cf8;width:16px;height:16px;cursor:pointer;"><span id="speakers-count" style="color:#c7d2fe;font-weight:600;">(off)</span></label></summary>
           <div class="row" style="margin-top: 8px;">
             <div>
               <label for="voice-dialogue-select">Dialogue voice (for quoted lines)</label>
-              <select id="voice-dialogue-select"><option value="">Same as narrator</option></select>
+              <select id="voice-dialogue-select"><option value="">Use narrator voice</option></select>
             </div>
           </div>
-          <p class="tip" style="margin-top: 6px;">Pick a <strong>Dialogue voice</strong> to enable multi-voice for all quoted lines. Load text to auto-detect named characters and assign them individual voices.</p>
           <div id="speakers-list" style="display: grid; gap: 8px; margin-top: 8px;"></div>
           <button id="btn-detect-speakers" class="secondary" type="button" style="margin-top: 10px; min-height: 40px;">Re-detect chapters &amp; speakers</button>
         </details>
@@ -312,6 +311,7 @@
       const speakersList = $("speakers-list");
       const voiceDialogueSelect = $("voice-dialogue-select");
       const btnDetectSpeakers = $("btn-detect-speakers");
+      const multiVoiceToggle = $("multi-voice-toggle");
 
       const buildVoiceOptions = (selected) => {
         let html = '<option value="">Use narrator voice</option>';
@@ -339,17 +339,19 @@
       const renderSpeakers = () => {
         voiceDialogueSelect.innerHTML = buildVoiceOptions(state.dialogueVoice);
         speakersList.innerHTML = "";
+        const enabled = multiVoiceToggle.checked;
         const active = state.speakers.length;
-        if (active) {
-          speakersCount.textContent = `(${active} detected)`;
-        } else if (state.dialogueVoice) {
-          speakersCount.textContent = "(on \u2014 dialogue voice set)";
-        } else {
+        if (!enabled) {
           speakersCount.textContent = "(off)";
+        } else if (active) {
+          speakersCount.textContent = `(${active} speaker${active === 1 ? "" : "s"} detected)`;
+        } else {
+          speakersCount.textContent = "(on)";
         }
         if (!active) {
-          speakersList.innerHTML =
-            '<p class="tip" style="margin: 0;">Select a <strong>Dialogue voice</strong> above to use a different voice for all quoted lines, or paste text with attribution like &ldquo;Run,&rdquo; Alice said. to auto-detect per-character voices.</p>';
+          speakersList.innerHTML = enabled
+            ? '<p class="tip" style="margin:0;">No named speakers found yet — quoted lines will use the Dialogue voice above. Paste text like &ldquo;Run,&rdquo; Alice said. to auto-detect characters.</p>'
+            : '<p class="tip" style="margin:0;">Check the box to enable multi-voice. Quoted lines get the Dialogue voice; named characters get individual voices.</p>';
           return;
         }
         for (const sp of state.speakers) {
@@ -373,7 +375,7 @@
         try {
           localStorage.setItem(
             "abm-voice-map",
-            JSON.stringify({ dialogue: state.dialogueVoice, speakers: state.speakerVoices }),
+            JSON.stringify({ dialogue: state.dialogueVoice, speakers: state.speakerVoices, enabled: multiVoiceToggle.checked }),
           );
         } catch (_err) {
           // localStorage may be disabled in private windows
@@ -388,6 +390,7 @@
           if (parsed && typeof parsed === "object") {
             state.dialogueVoice = parsed.dialogue || "";
             state.speakerVoices = parsed.speakers || {};
+            if (parsed.enabled) multiVoiceToggle.checked = true;
           }
         } catch (_err) {
           // ignore corrupt state
@@ -399,9 +402,15 @@
         const chapters = splitChapters(raw);
         const chunks = splitIntoChunks(chapters);
         state.speakers = detectSpeakers(chunks).slice(0, 24);
+        if (state.speakers.length) multiVoiceToggle.checked = true;
         renderSpeakers();
       };
 
+      multiVoiceToggle.addEventListener("change", () => {
+        renderSpeakers();
+        persistVoiceMap();
+        if (multiVoiceToggle.checked) speakersDetails.open = true;
+      });
       voiceDialogueSelect.addEventListener("change", () => {
         state.dialogueVoice = voiceDialogueSelect.value;
         persistVoiceMap();
@@ -409,7 +418,7 @@
       });
       btnDetectSpeakers.addEventListener("click", () => {
         detectFromText();
-        if (!state.speakers.length) setStatus("No named speakers detected. All lines will use the narrator voice.");
+        if (!state.speakers.length) setStatus("No named speakers detected. Quoted lines will use the Dialogue voice.");
         else setStatus(`Detected <strong>${state.speakers.length}</strong> speakers. Assign voices below.`);
         speakersDetails.open = true;
       });
@@ -604,8 +613,7 @@
         const concurrency = Math.max(1, Math.min(8, Number(concurrencyInput.value) || 4));
         const format = formatSelect.value;
 
-        const useMultiVoice =
-          !!state.dialogueVoice || Object.keys(state.speakerVoices || {}).length > 0;
+        const useMultiVoice = multiVoiceToggle.checked;
         let items = null;
         if (useMultiVoice) {
           const chapters = splitChapters(text);
