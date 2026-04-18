@@ -69,7 +69,7 @@ from config import (
 from nlp.dialogue import AlternationTracker, detect_dialogue_with_strategy, normalize_dialogue_strategy
 from nlp.pronunciation import PronunciationDict
 from parsers.source import (
-    chunk_text,
+    chunk_text_for_engine,
     detect_scene_breaks,
     extract_source_chapters as parser_extract_source_chapters,
     validate_local_input_file as parser_validate_local_input_file,
@@ -283,7 +283,14 @@ def copy_uploaded_input(file_obj: Any, slot: str) -> str:
         return ""
     ext = src.suffix.lower() or ".txt"
     target = SAVED_INPUTS_DIR / f"{slugify(slot, fallback='input')}_{uuid.uuid4().hex[:10]}{ext}"
-    shutil.copy2(src, target)
+    # Stream copy so large EPUBs/PDFs do not spike memory and feel faster to complete.
+    buffer = 1024 * 1024
+    with open(src, "rb") as inp, open(target, "wb") as out:
+        shutil.copyfileobj(inp, out, length=buffer)
+    try:
+        shutil.copystat(src, target)
+    except OSError:
+        pass
     return str(target)
 
 
@@ -470,6 +477,11 @@ def run_coro_sync(coro: Any) -> Any:
 
 
 class AsyncRateLimiter:
+    """
+    Spacing between Edge TTS starts. The sleep must happen outside the lock so
+    multiple workers can wait in parallel instead of queuing on one lock.
+    """
+
     def __init__(self, min_interval_s: float = 0.0) -> None:
         self.min_interval_s = max(0.0, float(min_interval_s))
         self._lock = asyncio.Lock()
@@ -478,12 +490,14 @@ class AsyncRateLimiter:
     async def wait_turn(self) -> None:
         if self.min_interval_s <= 0.0:
             return
+        sleep_for = 0.0
         async with self._lock:
             now = time.monotonic()
             if now < self._next_allowed_ts:
-                await asyncio.sleep(self._next_allowed_ts - now)
-                now = time.monotonic()
-            self._next_allowed_ts = now + self.min_interval_s
+                sleep_for = self._next_allowed_ts - now
+            self._next_allowed_ts = max(now, self._next_allowed_ts) + self.min_interval_s
+        if sleep_for > 0.0:
+            await asyncio.sleep(sleep_for)
 
 
 def create_tts_engine(engine_name: str) -> TTSEngine:
@@ -839,7 +853,7 @@ def stage_parse(
                     chapter_segments[-1]["scene_break_after"] = True
                 continue
 
-            chunks = chunk_text(para_text, max_chars=DEFAULT_SEGMENT_CHUNK_CHARS)
+            chunks = chunk_text_for_engine(para_text, engine_name, max_chars=DEFAULT_SEGMENT_CHUNK_CHARS)
             cursor = 0
             for chunk_idx, chunk in enumerate(chunks):
                 rel = para_text.find(chunk, cursor)
@@ -1782,6 +1796,33 @@ def voices_for_engine(engine_label: str) -> list[str]:
     return [v for v in voices if v]
 
 
+def voices_for_engine_prefer_english(engine_label: str) -> list[str]:
+    """Put common English neural voices first so defaults sound good out of the box."""
+    names = voices_for_engine(engine_label)
+
+    def sort_key(name: str) -> tuple[int, str]:
+        low = name.lower()
+        if low.startswith("en-us"):
+            return (0, name)
+        if low.startswith("en-gb"):
+            return (1, name)
+        if low.startswith("en-"):
+            return (2, name)
+        return (3, name)
+
+    return sorted(names, key=sort_key)
+
+
+def default_edge_voice_pair() -> tuple[str, str]:
+    """Narrator + dialogue defaults when Edge voice list is available."""
+    choices = voices_for_engine_prefer_english("edge-tts")
+    if not choices:
+        return "en-US-GuyNeural", "en-US-JennyNeural"
+    narrator = "en-US-EricNeural" if "en-US-EricNeural" in choices else choices[0]
+    dialogue = "en-US-AriaNeural" if "en-US-AriaNeural" in choices else (choices[1] if len(choices) > 1 else narrator)
+    return narrator, dialogue
+
+
 def voice_catalog_for_engine(engine_label: str) -> list[dict[str, str]]:
     engine = create_tts_engine(normalize_engine_label(engine_label))
     catalog: list[dict[str, str]] = []
@@ -2231,12 +2272,13 @@ def build_ui():
                 value="MP3 (single file, easiest to share)",
                 label="Output format",
             )
-            quick_voice_choices = voices_for_engine("edge-tts")
+            quick_voice_choices = voices_for_engine_prefer_english("edge-tts")
+            _qv_default, _ = default_edge_voice_pair()
             with gr.Accordion("Show advanced options", open=False):
                 quick_voice_simple = gr.Dropdown(
                     label="Voice (optional)",
                     choices=quick_voice_choices,
-                    value=(quick_voice_choices[0] if quick_voice_choices else None),
+                    value=_qv_default if _qv_default in quick_voice_choices else (quick_voice_choices[0] if quick_voice_choices else None),
                 )
                 quick_input_mode = gr.Radio(["File", "URL", "Paste Text"], value="Paste Text", label="Input mode")
                 quick_file_input = gr.File(
@@ -2290,12 +2332,24 @@ def build_ui():
                 value="edge-tts (Cloud, Free)",
                 label="TTS Engine",
             )
+            _edge_voice_choices = voices_for_engine_prefer_english("edge-tts")
+            _def_narr, _def_dlg = default_edge_voice_pair()
             with gr.Row():
-                narrator_voice = gr.Dropdown(label="Narrator Voice", choices=voices_for_engine("edge-tts"), scale=2)
+                narrator_voice = gr.Dropdown(
+                    label="Narrator Voice",
+                    choices=_edge_voice_choices,
+                    value=_def_narr if _def_narr in _edge_voice_choices else (_edge_voice_choices[0] if _edge_voice_choices else None),
+                    scale=2,
+                )
                 narrator_preview = gr.Button("Preview Narrator", scale=1)
             narrator_audio = gr.Audio(label="Narrator Preview", visible=True)
             with gr.Row():
-                dialogue_voice = gr.Dropdown(label="Dialogue Voice", choices=voices_for_engine("edge-tts"), scale=2)
+                dialogue_voice = gr.Dropdown(
+                    label="Dialogue Voice",
+                    choices=_edge_voice_choices,
+                    value=_def_dlg if _def_dlg in _edge_voice_choices else (_edge_voice_choices[1] if len(_edge_voice_choices) > 1 else _def_narr),
+                    scale=2,
+                )
                 dialogue_preview = gr.Button("Preview Dialogue", scale=1)
             dialogue_audio = gr.Audio(label="Dialogue Preview", visible=True)
             gr.Markdown("### Voice Browser")
@@ -2366,9 +2420,17 @@ def build_ui():
             cloud_status = gr.Markdown("")
 
         def on_engine_change(engine_label: str):
-            voice_choices = voices_for_engine(engine_label)
-            default_n = voice_choices[0] if voice_choices else None
-            default_d = voice_choices[1] if len(voice_choices) > 1 else default_n
+            if "edge" in (engine_label or "").lower():
+                voice_choices = voices_for_engine_prefer_english(engine_label)
+                default_n, default_d = default_edge_voice_pair()
+                if default_n not in voice_choices:
+                    default_n = voice_choices[0] if voice_choices else None
+                if default_d not in voice_choices:
+                    default_d = voice_choices[1] if len(voice_choices) > 1 else default_n
+            else:
+                voice_choices = voices_for_engine(engine_label)
+                default_n = voice_choices[0] if voice_choices else None
+                default_d = voice_choices[1] if len(voice_choices) > 1 else default_n
             return (
                 gr.Dropdown(choices=voice_choices, value=default_n),
                 gr.Dropdown(choices=voice_choices, value=default_d),
@@ -3194,6 +3256,8 @@ def build_ui():
                 narrator = selected_voice
                 dialogue = selected_voice
                 output_mode = "m4b" if str(output_fmt).lower().startswith("m4b") else "mp3"
+                edge_engine = create_tts_engine(primary_engine)
+                quick_workers = min(8, max(2, edge_engine.max_concurrent))
                 settings = {
                     "tts_engine": primary_engine,
                     "narrator_voice": narrator,
@@ -3203,8 +3267,8 @@ def build_ui():
                     "speed_multiplier": 1.0,
                     "speed_mode": "post_process",
                     "dialogue_detection_strategy": DEFAULT_DIALOGUE_STRATEGY,
-                    "max_concurrent": 1,
-                    "max_queue_size": LOW_MEMORY_QUEUE_SIZE,
+                    "max_concurrent": quick_workers,
+                    "max_queue_size": max(LOW_MEMORY_QUEUE_SIZE, quick_workers * 3),
                     "cache_max_size_mb": QUICK_CACHE_MAX_SIZE_MB,
                     "background_music": None,
                     "music_duck_db": -15,

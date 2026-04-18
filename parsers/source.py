@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
-from config import DEFAULT_SEGMENT_CHUNK_CHARS, MAX_UPLOAD_FILE_BYTES
+from config import DEFAULT_SEGMENT_CHUNK_CHARS, EDGE_TTS_MAX_CHUNK_UTF8_BYTES, MAX_UPLOAD_FILE_BYTES
 
 
 CHAPTER_PATTERNS = [
@@ -89,6 +89,56 @@ def chunk_text(text: str, max_chars: int = DEFAULT_SEGMENT_CHUNK_CHARS) -> list[
     if current:
         chunks.append(" ".join(current).strip())
     return chunks
+
+
+def _utf8_len(s: str) -> int:
+    return len((s or "").encode("utf-8"))
+
+
+def _split_oversized_sentence(sentence: str, max_utf8_bytes: int) -> list[str]:
+    """Split a single long sentence so each piece stays under max_utf8_bytes."""
+    if _utf8_len(sentence) <= max_utf8_bytes:
+        return [sentence] if sentence.strip() else []
+    pieces: list[str] = []
+    buf = ""
+    for ch in sentence:
+        trial = buf + ch
+        if _utf8_len(trial) > max_utf8_bytes and buf.strip():
+            pieces.append(buf.strip())
+            buf = ch
+        else:
+            buf = trial
+    if buf.strip():
+        pieces.append(buf.strip())
+    return pieces
+
+
+def chunk_text_utf8_budget(text: str, max_utf8_bytes: int) -> list[str]:
+    """
+    Like chunk_text but caps UTF-8 byte length per chunk (for APIs with byte limits).
+    """
+    if _utf8_len(text) <= max_utf8_bytes:
+        return [text.strip()] if text.strip() else []
+    chunks: list[str] = []
+    current: list[str] = []
+    for sentence in split_sentences(text):
+        for piece in _split_oversized_sentence(sentence, max_utf8_bytes):
+            trial = " ".join(current + [piece]).strip() if current else piece.strip()
+            if current and _utf8_len(trial) > max_utf8_bytes:
+                chunks.append(" ".join(current).strip())
+                current = [piece]
+            else:
+                current.append(piece)
+    if current:
+        chunks.append(" ".join(current).strip())
+    return chunks
+
+
+def chunk_text_for_engine(text: str, engine_name: str, max_chars: int = DEFAULT_SEGMENT_CHUNK_CHARS) -> list[str]:
+    """Choose chunking strategy: Edge TTS needs small UTF-8 payloads; others use character budget."""
+    if "edge" in (engine_name or "").lower():
+        return chunk_text_utf8_budget(text, EDGE_TTS_MAX_CHUNK_UTF8_BYTES)
+    return chunk_text(text, max_chars=max_chars)
 
 
 def extract_chapters_from_epub(epub_path: str) -> tuple[list[dict[str, str]], dict[str, str]]:

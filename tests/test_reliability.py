@@ -4,6 +4,7 @@ from pathlib import Path
 import wave
 import contextlib
 import asyncio
+import time
 from unittest.mock import patch
 
 from audiobook_creator_v7 import (
@@ -23,6 +24,9 @@ from audiobook_creator_v7 import (
 )
 from nlp.dialogue import detect_all_dialogue, detect_dialogue_with_strategy, normalize_dialogue_strategy
 from nlp.pronunciation import PronunciationDict
+from parsers.source import chunk_text_for_engine
+from audiobook_creator_v7 import AsyncRateLimiter
+from config import EDGE_TTS_MAX_CHUNK_UTF8_BYTES
 
 
 def write_silence_wav(path: Path, duration_s: float = 0.5, sample_rate: int = 24000) -> None:
@@ -169,6 +173,31 @@ class ReliabilityTests(unittest.TestCase):
         rules = PronunciationDict({"tom": "TOM"})
         out = rules.apply("Tom met atom and TOM.")
         self.assertEqual(out, "TOM met atom and TOM.")
+
+    def test_edge_chunk_respects_utf8_byte_budget(self):
+        long_ascii = "word " * 2000
+        chunks = chunk_text_for_engine(long_ascii, "edge-tts")
+        self.assertGreater(len(chunks), 1)
+        for c in chunks:
+            self.assertLessEqual(len(c.encode("utf-8")), EDGE_TTS_MAX_CHUNK_UTF8_BYTES)
+
+    def test_kokoro_chunk_allows_larger_segments(self):
+        text = "sentence. " * 400
+        chunks = chunk_text_for_engine(text, "kokoro")
+        self.assertEqual(len(chunks), 1)
+
+    def test_async_rate_limiter_parallelism(self):
+        lim = AsyncRateLimiter(0.05)
+        started = time.monotonic()
+
+        async def run():
+            await asyncio.gather(*(lim.wait_turn() for _ in range(4)))
+
+        asyncio.run(run())
+        elapsed = time.monotonic() - started
+        # Staggered spacing is ~3 * 50ms between first and last start; holding the lock
+        # during sleep (old bug) would add idle time on top of that.
+        self.assertLess(elapsed, 0.28)
 
 
 if __name__ == "__main__":
