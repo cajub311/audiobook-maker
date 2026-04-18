@@ -2,12 +2,38 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 import time
 import wave
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
+
+
+def _parse_voice_string(voice: str) -> tuple[str, str, str | None]:
+    """Parse 'VoiceName|pitch=+2Hz|rate=-5%' into (voice_name, pitch, rate_override).
+
+    Lets callers embed pitch/rate into the voice field without changing the engine API.
+    """
+    parts = voice.split("|")
+    voice_name = parts[0]
+    pitch = "+0Hz"
+    rate_override: str | None = None
+    for part in parts[1:]:
+        if part.startswith("pitch="):
+            pitch = part[6:]
+        elif part.startswith("rate="):
+            rate_override = part[5:]
+    return voice_name, pitch, rate_override
+
+
+def _clean_for_tts(text: str) -> str:
+    """Strip markup that edge-tts would read aloud as literal words."""
+    text = re.sub(r"<[^>]+>", "", text)   # HTML / SSML / XML tags
+    text = re.sub(r"[*_`~#\\]", "", text) # markdown emphasis / heading / escape chars
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
 @dataclass
@@ -77,8 +103,10 @@ class EdgeTTSEngine(TTSEngine):
             return [v for v in formatted if v["name"]]
         except Exception:
             return [
-                {"name": "en-US-GuyNeural", "locale": "en-US"},
-                {"name": "en-US-JennyNeural", "locale": "en-US"},
+                {"name": "en-GB-ThomasMultilingualNeural", "locale": "en-GB"},
+                {"name": "en-US-AvaMultilingualNeural", "locale": "en-US"},
+                {"name": "en-US-AndrewMultilingualNeural", "locale": "en-US"},
+                {"name": "en-GB-SoniaNeural", "locale": "en-GB"},
                 {"name": "en-GB-RyanNeural", "locale": "en-GB"},
             ]
 
@@ -90,11 +118,15 @@ class EdgeTTSEngine(TTSEngine):
         output_path: Optional[str] = None,
     ) -> TTSResult:
         output_path = output_path or str(self._deps.temp_dir / f"edge_{int(time.time()*1000)}.mp3")
-        rate_str = f"{int((speed - 1.0) * 100):+d}%"
+        voice_name, pitch, rate_override = _parse_voice_string(voice)
+        rate_str = rate_override if rate_override else f"{int((speed - 1.0) * 100):+d}%"
+        cleaned = _clean_for_tts(text)
+        if not cleaned:
+            cleaned = "..."
         try:
             import edge_tts  # type: ignore
 
-            communicate = edge_tts.Communicate(text=text, voice=voice, rate=rate_str)
+            communicate = edge_tts.Communicate(text=cleaned, voice=voice_name, rate=rate_str, pitch=pitch)
             await communicate.save(output_path)
             duration = self._deps.get_duration_ffprobe_fn(output_path)
             return TTSResult(audio_path=output_path, duration_seconds=duration, sample_rate=24000)
@@ -170,7 +202,8 @@ class KokoroEngine(TTSEngine):
         try:
             import soundfile as sf  # type: ignore
 
-            samples, sample_rate = self._model.create(text, voice=voice, speed=speed)
+            voice_name, _, _ = _parse_voice_string(voice)
+            samples, sample_rate = self._model.create(text, voice=voice_name, speed=speed)
             sf.write(output_path, samples, sample_rate)
             duration = float(len(samples)) / float(sample_rate or 1)
             return TTSResult(audio_path=output_path, duration_seconds=duration, sample_rate=int(sample_rate))

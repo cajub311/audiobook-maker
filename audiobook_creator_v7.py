@@ -670,8 +670,8 @@ def ensure_manifest_defaults(manifest: dict[str, Any]) -> dict[str, Any]:
     manifest.setdefault("settings", {})
     settings = manifest["settings"]
     settings.setdefault("tts_engine", "edge-tts")
-    settings.setdefault("narrator_voice", "en-US-GuyNeural")
-    settings.setdefault("dialogue_voice", "en-US-JennyNeural")
+    settings.setdefault("narrator_voice", "en-GB-ThomasMultilingualNeural|pitch=-3Hz")
+    settings.setdefault("dialogue_voice", "en-US-AvaMultilingualNeural|pitch=+2Hz")
     settings.setdefault("character_voices", {})
     settings.setdefault("pronunciation_overrides", {})
     settings.setdefault("speed_multiplier", 1.0)
@@ -718,7 +718,7 @@ def ensure_manifest_defaults(manifest: dict[str, Any]) -> dict[str, Any]:
             seg.setdefault("speaker", "narrator")
             seg.setdefault("speaker_method", "unknown")
             seg.setdefault("speaker_confidence", 0.0)
-            seg.setdefault("voice", settings.get("narrator_voice", "en-US-GuyNeural"))
+            seg.setdefault("voice", settings.get("narrator_voice", "en-GB-ThomasMultilingualNeural|pitch=-3Hz"))
             seg.setdefault("status", "pending")
             seg.setdefault("cache_file", None)
             seg.setdefault("duration_seconds", None)
@@ -778,8 +778,8 @@ def stage_parse(
     ensure_runtime_dirs()
     settings = dict(settings or {})
     engine_name = settings.get("tts_engine", "edge-tts")
-    narrator_voice = settings.get("narrator_voice", "en-US-GuyNeural")
-    dialogue_voice = settings.get("dialogue_voice", "en-US-JennyNeural")
+    narrator_voice = settings.get("narrator_voice", "en-GB-ThomasMultilingualNeural|pitch=-3Hz")
+    dialogue_voice = settings.get("dialogue_voice", "en-US-AvaMultilingualNeural|pitch=+2Hz")
     speed = float(settings.get("speed_multiplier", 1.0))
     speed_mode = str(settings.get("speed_mode", "native"))
     dialogue_strategy = str(settings.get("dialogue_detection_strategy", DEFAULT_DIALOGUE_STRATEGY))
@@ -1056,7 +1056,7 @@ async def stage_generate(
         segment = chapter["segments"][seg_idx]
         text = segment.get("text", "")
         speaker = segment.get("speaker", "narrator")
-        voice = segment.get("voice") or settings.get("narrator_voice", "en-US-GuyNeural")
+        voice = segment.get("voice") or settings.get("narrator_voice", "en-GB-ThomasMultilingualNeural|pitch=-3Hz")
         transformed_text = pronunciation.apply(text)
         tts_speed = speed if speed_mode == "native" else 1.0
         try:
