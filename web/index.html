@@ -174,7 +174,7 @@
               <select id="voice-dialogue-select"><option value="">Same as narrator</option></select>
             </div>
           </div>
-          <p class="tip" style="margin-top: 6px;">Detected speakers appear below once you load text. Pick a dedicated voice per character to give each one a distinct sound.</p>
+          <p class="tip" style="margin-top: 6px;">Pick a <strong>Dialogue voice</strong> to enable multi-voice for all quoted lines. Load text to auto-detect named characters and assign them individual voices.</p>
           <div id="speakers-list" style="display: grid; gap: 8px; margin-top: 8px;"></div>
           <button id="btn-detect-speakers" class="secondary" type="button" style="margin-top: 10px; min-height: 40px;">Re-detect chapters &amp; speakers</button>
         </details>
@@ -340,10 +340,16 @@
         voiceDialogueSelect.innerHTML = buildVoiceOptions(state.dialogueVoice);
         speakersList.innerHTML = "";
         const active = state.speakers.length;
-        speakersCount.textContent = active ? `(${active} detected)` : "(off)";
+        if (active) {
+          speakersCount.textContent = `(${active} detected)`;
+        } else if (state.dialogueVoice) {
+          speakersCount.textContent = "(on \u2014 dialogue voice set)";
+        } else {
+          speakersCount.textContent = "(off)";
+        }
         if (!active) {
           speakersList.innerHTML =
-            '<p class="tip" style="margin: 0;">No named speakers detected yet. Paste dialogue with lines like &ldquo;Run,&rdquo; Alice said. to auto-detect characters.</p>';
+            '<p class="tip" style="margin: 0;">Select a <strong>Dialogue voice</strong> above to use a different voice for all quoted lines, or paste text with attribution like &ldquo;Run,&rdquo; Alice said. to auto-detect per-character voices.</p>';
           return;
         }
         for (const sp of state.speakers) {
@@ -399,6 +405,7 @@
       voiceDialogueSelect.addEventListener("change", () => {
         state.dialogueVoice = voiceDialogueSelect.value;
         persistVoiceMap();
+        renderSpeakers();
       });
       btnDetectSpeakers.addEventListener("click", () => {
         detectFromText();
