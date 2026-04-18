@@ -2,12 +2,80 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 import time
 import wave
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
+
+
+def _parse_voice_string(voice: str) -> tuple[str, str, str | None]:
+    """Parse 'VoiceName|pitch=+2Hz|rate=-5%' into (voice_name, pitch, rate_override).
+
+    Lets callers embed pitch/rate into the voice field without changing the engine API.
+    """
+    parts = voice.split("|")
+    voice_name = parts[0]
+    pitch = "+0Hz"
+    rate_override: str | None = None
+    for part in parts[1:]:
+        if part.startswith("pitch="):
+            pitch = part[6:]
+        elif part.startswith("rate="):
+            rate_override = part[5:]
+    return voice_name, pitch, rate_override
+
+
+# Abbreviations expanded before synthesis so TTS doesn't stumble on trailing dots.
+_ABBREVS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\bMr\.", re.I), "Mister"),
+    (re.compile(r"\bMrs\.", re.I), "Missus"),
+    (re.compile(r"\bMs\.", re.I), "Miss"),
+    (re.compile(r"\bDr\.", re.I), "Doctor"),
+    (re.compile(r"\bProf\.", re.I), "Professor"),
+    (re.compile(r"\bSgt\.", re.I), "Sergeant"),
+    (re.compile(r"\bCpl\.", re.I), "Corporal"),
+    (re.compile(r"\bLt\.", re.I), "Lieutenant"),
+    (re.compile(r"\bCapt\.", re.I), "Captain"),
+    (re.compile(r"\bSt\.\s+(?=[A-Z])", re.I), "Saint "),
+    (re.compile(r"\bvs\.", re.I), "versus"),
+    (re.compile(r"\bJr\.", re.I), "Junior"),
+    (re.compile(r"\bSr\.", re.I), "Senior"),
+    (re.compile(r"\betc\.", re.I), "et cetera"),
+]
+
+
+def _clean_for_tts(text: str) -> str:
+    """Normalize text so edge-tts speaks it naturally without reading markup as words."""
+    # HTML entity decode before stripping tags
+    text = (
+        text.replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&nbsp;", " ")
+            .replace("&#39;", "'")
+            .replace("&quot;", '"')
+    )
+    # Strip HTML / SSML / XML tags (after entity expansion so & doesn't confuse it)
+    text = re.sub(r"<[^>]+>", "", text)
+    # Expand abbreviations so trailing dots don't cause false sentence breaks
+    for pattern, replacement in _ABBREVS:
+        text = pattern.sub(replacement, text)
+    # Em-dash → comma pause (reads as a natural beat rather than silence)
+    text = re.sub(r"\s*—\s*", ", ", text)
+    # Normalize ellipsis sequences → single Unicode ellipsis (edge-tts pauses on it)
+    text = re.sub(r"\.\.\.+", "…", text)
+    # Collapse repeated punctuation: !!! → !, ??? → ?
+    text = re.sub(r"([!?]){2,}", r"\1", text)
+    # ALL-CAPS words (4+ letters) → Title Case so TTS doesn't shout or spell them out
+    text = re.sub(r"\b([A-Z]{4,})\b", lambda m: m.group(1).capitalize(), text)
+    # Markdown formatting characters
+    text = re.sub(r"[*_`~#\\]", "", text)
+    # Collapse whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
 @dataclass
@@ -77,8 +145,10 @@ class EdgeTTSEngine(TTSEngine):
             return [v for v in formatted if v["name"]]
         except Exception:
             return [
-                {"name": "en-US-GuyNeural", "locale": "en-US"},
-                {"name": "en-US-JennyNeural", "locale": "en-US"},
+                {"name": "en-GB-ThomasMultilingualNeural", "locale": "en-GB"},
+                {"name": "en-US-AvaMultilingualNeural", "locale": "en-US"},
+                {"name": "en-US-AndrewMultilingualNeural", "locale": "en-US"},
+                {"name": "en-GB-SoniaNeural", "locale": "en-GB"},
                 {"name": "en-GB-RyanNeural", "locale": "en-GB"},
             ]
 
@@ -90,11 +160,15 @@ class EdgeTTSEngine(TTSEngine):
         output_path: Optional[str] = None,
     ) -> TTSResult:
         output_path = output_path or str(self._deps.temp_dir / f"edge_{int(time.time()*1000)}.mp3")
-        rate_str = f"{int((speed - 1.0) * 100):+d}%"
+        voice_name, pitch, rate_override = _parse_voice_string(voice)
+        rate_str = rate_override if rate_override else f"{int((speed - 1.0) * 100):+d}%"
+        cleaned = _clean_for_tts(text)
+        if not cleaned:
+            cleaned = "..."
         try:
             import edge_tts  # type: ignore
 
-            communicate = edge_tts.Communicate(text=text, voice=voice, rate=rate_str)
+            communicate = edge_tts.Communicate(text=cleaned, voice=voice_name, rate=rate_str, pitch=pitch)
             await communicate.save(output_path)
             duration = self._deps.get_duration_ffprobe_fn(output_path)
             return TTSResult(audio_path=output_path, duration_seconds=duration, sample_rate=24000)
@@ -170,7 +244,8 @@ class KokoroEngine(TTSEngine):
         try:
             import soundfile as sf  # type: ignore
 
-            samples, sample_rate = self._model.create(text, voice=voice, speed=speed)
+            voice_name, _, _ = _parse_voice_string(voice)
+            samples, sample_rate = self._model.create(text, voice=voice_name, speed=speed)
             sf.write(output_path, samples, sample_rate)
             duration = float(len(samples)) / float(sample_rate or 1)
             return TTSResult(audio_path=output_path, duration_seconds=duration, sample_rate=int(sample_rate))

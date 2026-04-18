@@ -82,6 +82,24 @@ PREVIEW_SAMPLE_TEXT = (
     "You are hearing the selected voice speaking naturally with clear pacing."
 )
 
+# Curated pool of distinct edge-tts voices for auto-assigning to detected characters.
+# Ordered to maximise variety: alternating gender, accent, and age so consecutive
+# characters in a book sound clearly different from each other.
+_CHARACTER_VOICE_POOL: list[str] = [
+    "en-US-AndrewMultilingualNeural|pitch=+0Hz",   # US male, warm baritone
+    "en-GB-SoniaNeural|pitch=+4Hz",                # British female, crisp
+    "en-US-BrianMultilingualNeural|pitch=+3Hz",    # US male, younger
+    "en-AU-NatashaNeural|pitch=+3Hz",              # Australian female, bright
+    "en-GB-RyanNeural|pitch=-6Hz",                 # British male, deeper
+    "en-US-EmmaMultilingualNeural|pitch=+5Hz",     # US female, warm
+    "en-IE-ConnorNeural|pitch=-2Hz",               # Irish male, distinctive accent
+    "en-GB-LibbyNeural|pitch=+6Hz",                # British female, lighter
+    "en-US-SteffanNeural|pitch=-8Hz",              # US male, authoritative
+    "en-NZ-MollyNeural|pitch=+4Hz",                # NZ female, friendly
+    "en-US-ChristopherNeural|pitch=-4Hz",          # US male, mid-range
+    "en-CA-ClaraNeural|pitch=+2Hz",                # Canadian female, neutral
+]
+
 _LOG_LEVEL = str(os.environ.get("ABM_LOG_LEVEL", "INFO") or "INFO").upper()
 logging.basicConfig(
     level=getattr(logging, _LOG_LEVEL, logging.INFO),
@@ -670,8 +688,8 @@ def ensure_manifest_defaults(manifest: dict[str, Any]) -> dict[str, Any]:
     manifest.setdefault("settings", {})
     settings = manifest["settings"]
     settings.setdefault("tts_engine", "edge-tts")
-    settings.setdefault("narrator_voice", "en-US-GuyNeural")
-    settings.setdefault("dialogue_voice", "en-US-JennyNeural")
+    settings.setdefault("narrator_voice", "en-GB-ThomasMultilingualNeural|pitch=-3Hz")
+    settings.setdefault("dialogue_voice", "en-US-AvaMultilingualNeural|pitch=+2Hz")
     settings.setdefault("character_voices", {})
     settings.setdefault("pronunciation_overrides", {})
     settings.setdefault("speed_multiplier", 1.0)
@@ -718,7 +736,7 @@ def ensure_manifest_defaults(manifest: dict[str, Any]) -> dict[str, Any]:
             seg.setdefault("speaker", "narrator")
             seg.setdefault("speaker_method", "unknown")
             seg.setdefault("speaker_confidence", 0.0)
-            seg.setdefault("voice", settings.get("narrator_voice", "en-US-GuyNeural"))
+            seg.setdefault("voice", settings.get("narrator_voice", "en-GB-ThomasMultilingualNeural|pitch=-3Hz"))
             seg.setdefault("status", "pending")
             seg.setdefault("cache_file", None)
             seg.setdefault("duration_seconds", None)
@@ -778,8 +796,8 @@ def stage_parse(
     ensure_runtime_dirs()
     settings = dict(settings or {})
     engine_name = settings.get("tts_engine", "edge-tts")
-    narrator_voice = settings.get("narrator_voice", "en-US-GuyNeural")
-    dialogue_voice = settings.get("dialogue_voice", "en-US-JennyNeural")
+    narrator_voice = settings.get("narrator_voice", "en-GB-ThomasMultilingualNeural|pitch=-3Hz")
+    dialogue_voice = settings.get("dialogue_voice", "en-US-AvaMultilingualNeural|pitch=+2Hz")
     speed = float(settings.get("speed_multiplier", 1.0))
     speed_mode = str(settings.get("speed_mode", "native"))
     dialogue_strategy = str(settings.get("dialogue_detection_strategy", DEFAULT_DIALOGUE_STRATEGY))
@@ -858,9 +876,13 @@ def stage_parse(
 
                 voice_map = settings.get("character_voices", {})
                 if speaker != "narrator":
-                    selected = voice_map.get(speaker, {"voice": dialogue_voice, "detected_by": "auto"})
-                    voice = selected.get("voice", dialogue_voice)
-                    voice_map.setdefault(speaker, {"voice": voice, "detected_by": "auto"})
+                    if speaker not in voice_map:
+                        # Stable auto-assignment: hash the character name so the same
+                        # character always gets the same voice across re-parses.
+                        pool_idx = int(hashlib.md5(speaker.encode()).hexdigest(), 16) % len(_CHARACTER_VOICE_POOL)
+                        auto_voice = _CHARACTER_VOICE_POOL[pool_idx]
+                        voice_map[speaker] = {"voice": auto_voice, "detected_by": "auto"}
+                    voice = voice_map[speaker].get("voice", dialogue_voice)
                 else:
                     voice = narrator_voice
 
@@ -1056,7 +1078,7 @@ async def stage_generate(
         segment = chapter["segments"][seg_idx]
         text = segment.get("text", "")
         speaker = segment.get("speaker", "narrator")
-        voice = segment.get("voice") or settings.get("narrator_voice", "en-US-GuyNeural")
+        voice = segment.get("voice") or settings.get("narrator_voice", "en-GB-ThomasMultilingualNeural|pitch=-3Hz")
         transformed_text = pronunciation.apply(text)
         tts_speed = speed if speed_mode == "native" else 1.0
         try:
@@ -1491,7 +1513,7 @@ def stage_assemble(
                 "-c:a",
                 "aac",
                 "-b:a",
-                "64k",
+                "128k",
                 "-ar",
                 "44100",
                 "-ac",
