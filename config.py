@@ -38,7 +38,7 @@ def _env_float(name: str, default: float, *, minimum: float | None = None) -> fl
 
 
 APP_VERSION = _env_str("ABM_APP_VERSION", "7.0")
-CACHE_KEY_SCHEMA_VERSION = _env_int("ABM_CACHE_KEY_SCHEMA_VERSION", 2, minimum=1)
+CACHE_KEY_SCHEMA_VERSION = _env_int("ABM_CACHE_KEY_SCHEMA_VERSION", 3, minimum=1)
 
 BASE_DIR = Path(_env_str("ABM_BASE_DIR", str(Path(__file__).resolve().parent))).resolve()
 CACHE_DIR = BASE_DIR / _env_str("ABM_CACHE_DIRNAME", "tts_cache")
@@ -67,7 +67,8 @@ VOICE_BROWSER_PAGE_SIZE = _env_int("ABM_VOICE_BROWSER_PAGE_SIZE", 12, minimum=1)
 CACHE_SLIDER_MIN_MB = _env_int("ABM_CACHE_SLIDER_MIN_MB", 128, minimum=64)
 CACHE_SLIDER_MAX_MB = _env_int("ABM_CACHE_SLIDER_MAX_MB", 4096, minimum=128)
 CACHE_SLIDER_STEP_MB = _env_int("ABM_CACHE_SLIDER_STEP_MB", 64, minimum=1)
-DEFAULT_TTS_MIN_REQUEST_INTERVAL_S = _env_float("ABM_TTS_MIN_REQUEST_INTERVAL_S", 0.15, minimum=0.0)
+# Slightly lower default helps long books while staying polite to the Edge TTS endpoint.
+DEFAULT_TTS_MIN_REQUEST_INTERVAL_S = _env_float("ABM_TTS_MIN_REQUEST_INTERVAL_S", 0.08, minimum=0.0)
 DEFAULT_DIALOGUE_STRATEGY = _env_str("ABM_DIALOGUE_STRATEGY", "auto")
 
 USER_AGENT = _env_str("ABM_USER_AGENT", "AudiobookCreatorV7/1.0 (+mobile-safe-fetch)")

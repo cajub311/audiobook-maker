@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
+import inspect
 import os
 import time
 import wave
@@ -57,12 +59,21 @@ class TTSEngine(ABC):
 
 
 class EdgeTTSEngine(TTSEngine):
+    """Microsoft Edge neural voices via edge-tts (free, requires network)."""
+
+    # Subtle prosody defaults — improves flat / robotic delivery vs rate-only.
+    _DEFAULT_PITCH = "+2Hz"
+    _DEFAULT_VOLUME = "+6%"
+    _GEN_RETRIES = 3
+    _GEN_RETRY_BASE_S = 0.75
+
     def __init__(self, deps: EngineDeps) -> None:
         self._deps = deps
 
     @property
     def max_concurrent(self) -> int:
-        return 12
+        # Edge can throttle if this is too high; 8 is a stable balance on HF Spaces.
+        return 8
 
     @property
     def requires_internet(self) -> bool:
@@ -77,10 +88,20 @@ class EdgeTTSEngine(TTSEngine):
             return [v for v in formatted if v["name"]]
         except Exception:
             return [
-                {"name": "en-US-GuyNeural", "locale": "en-US"},
-                {"name": "en-US-JennyNeural", "locale": "en-US"},
+                {"name": "en-US-AndrewNeural", "locale": "en-US"},
+                {"name": "en-US-EmmaNeural", "locale": "en-US"},
                 {"name": "en-GB-RyanNeural", "locale": "en-GB"},
             ]
+
+    def _build_communicate(self, edge_tts: Any, text: str, voice: str, rate_str: str) -> Any:
+        sig = inspect.signature(edge_tts.Communicate.__init__)
+        params = sig.parameters
+        kwargs: dict[str, Any] = {"text": text, "voice": voice, "rate": rate_str}
+        if "pitch" in params:
+            kwargs["pitch"] = self._DEFAULT_PITCH
+        if "volume" in params:
+            kwargs["volume"] = self._DEFAULT_VOLUME
+        return edge_tts.Communicate(**kwargs)
 
     async def generate(
         self,
@@ -93,13 +114,23 @@ class EdgeTTSEngine(TTSEngine):
         rate_str = f"{int((speed - 1.0) * 100):+d}%"
         try:
             import edge_tts  # type: ignore
-
-            communicate = edge_tts.Communicate(text=text, voice=voice, rate=rate_str)
-            await communicate.save(output_path)
-            duration = self._deps.get_duration_ffprobe_fn(output_path)
-            return TTSResult(audio_path=output_path, duration_seconds=duration, sample_rate=24000)
         except Exception as exc:
-            raise RuntimeError(f"edge-tts generation failed: {exc}") from exc
+            raise RuntimeError(f"edge-tts is not installed: {exc}") from exc
+
+        last_err: Optional[Exception] = None
+        for attempt in range(self._GEN_RETRIES):
+            try:
+                communicate = self._build_communicate(edge_tts, text, voice, rate_str)
+                await communicate.save(output_path)
+                duration = self._deps.get_duration_ffprobe_fn(output_path)
+                if duration > 0:
+                    return TTSResult(audio_path=output_path, duration_seconds=duration, sample_rate=24000)
+                last_err = RuntimeError("edge-tts produced empty or unreadable audio")
+            except Exception as exc:
+                last_err = exc
+            if attempt + 1 < self._GEN_RETRIES:
+                await asyncio.sleep(self._GEN_RETRY_BASE_S * (2**attempt))
+        raise RuntimeError(f"edge-tts generation failed after {self._GEN_RETRIES} attempts: {last_err}") from last_err
 
     def preview(self, voice: str) -> TTSResult:
         sample = self._deps.preview_sample_text

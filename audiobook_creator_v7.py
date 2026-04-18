@@ -283,7 +283,24 @@ def copy_uploaded_input(file_obj: Any, slot: str) -> str:
         return ""
     ext = src.suffix.lower() or ".txt"
     target = SAVED_INPUTS_DIR / f"{slugify(slot, fallback='input')}_{uuid.uuid4().hex[:10]}{ext}"
-    shutil.copy2(src, target)
+    # Stream large uploads instead of shutil.copy2 (faster on big EPUB/PDF, less peak RAM).
+    chunk_size = 8 * 1024 * 1024
+    try:
+        with open(src, "rb") as inp, open(target, "wb") as out:
+            while True:
+                block = inp.read(chunk_size)
+                if not block:
+                    break
+                out.write(block)
+        try:
+            shutil.copystat(src, target)
+        except Exception:
+            pass
+    except Exception:
+        with contextlib.suppress(Exception):
+            if target.exists():
+                target.unlink()
+        shutil.copy2(src, target)
     return str(target)
 
 
@@ -670,8 +687,8 @@ def ensure_manifest_defaults(manifest: dict[str, Any]) -> dict[str, Any]:
     manifest.setdefault("settings", {})
     settings = manifest["settings"]
     settings.setdefault("tts_engine", "edge-tts")
-    settings.setdefault("narrator_voice", "en-US-GuyNeural")
-    settings.setdefault("dialogue_voice", "en-US-JennyNeural")
+    settings.setdefault("narrator_voice", "en-US-AndrewNeural")
+    settings.setdefault("dialogue_voice", "en-US-EmmaNeural")
     settings.setdefault("character_voices", {})
     settings.setdefault("pronunciation_overrides", {})
     settings.setdefault("speed_multiplier", 1.0)
@@ -718,7 +735,7 @@ def ensure_manifest_defaults(manifest: dict[str, Any]) -> dict[str, Any]:
             seg.setdefault("speaker", "narrator")
             seg.setdefault("speaker_method", "unknown")
             seg.setdefault("speaker_confidence", 0.0)
-            seg.setdefault("voice", settings.get("narrator_voice", "en-US-GuyNeural"))
+            seg.setdefault("voice", settings.get("narrator_voice", "en-US-AndrewNeural"))
             seg.setdefault("status", "pending")
             seg.setdefault("cache_file", None)
             seg.setdefault("duration_seconds", None)
@@ -778,8 +795,8 @@ def stage_parse(
     ensure_runtime_dirs()
     settings = dict(settings or {})
     engine_name = settings.get("tts_engine", "edge-tts")
-    narrator_voice = settings.get("narrator_voice", "en-US-GuyNeural")
-    dialogue_voice = settings.get("dialogue_voice", "en-US-JennyNeural")
+    narrator_voice = settings.get("narrator_voice", "en-US-AndrewNeural")
+    dialogue_voice = settings.get("dialogue_voice", "en-US-EmmaNeural")
     speed = float(settings.get("speed_multiplier", 1.0))
     speed_mode = str(settings.get("speed_mode", "native"))
     dialogue_strategy = str(settings.get("dialogue_detection_strategy", DEFAULT_DIALOGUE_STRATEGY))
@@ -934,7 +951,7 @@ def stage_parse(
     for chapter in manifest.get("chapters", []):
         for segment in chapter.get("segments", []):
             text = str(segment.get("text", "") or "")
-            voice = str(segment.get("voice", settings.get("narrator_voice", "en-US-GuyNeural")) or settings.get("narrator_voice", "en-US-GuyNeural"))
+            voice = str(segment.get("voice", settings.get("narrator_voice", "en-US-AndrewNeural")) or settings.get("narrator_voice", "en-US-AndrewNeural"))
             text_hash = hashlib.md5(f"{text}|{voice}|{engine_name}|{speed}".encode("utf-8")).hexdigest()
             segment["text_hash"] = text_hash
             cached_file = cache.get(
@@ -1056,7 +1073,7 @@ async def stage_generate(
         segment = chapter["segments"][seg_idx]
         text = segment.get("text", "")
         speaker = segment.get("speaker", "narrator")
-        voice = segment.get("voice") or settings.get("narrator_voice", "en-US-GuyNeural")
+        voice = segment.get("voice") or settings.get("narrator_voice", "en-US-AndrewNeural")
         transformed_text = pronunciation.apply(text)
         tts_speed = speed if speed_mode == "native" else 1.0
         try:
@@ -1779,7 +1796,13 @@ def normalize_quick_output_format_label(label: str) -> str:
 def voices_for_engine(engine_label: str) -> list[str]:
     engine = create_tts_engine(normalize_engine_label(engine_label))
     voices = [v.get("name", "") for v in engine.list_voices()]
-    return [v for v in voices if v]
+    voices = [v for v in voices if v]
+    if "edge" in normalize_engine_label(engine_label).lower():
+        preferred = ["en-US-AndrewNeural", "en-US-EmmaNeural", "en-US-GuyNeural", "en-US-JennyNeural"]
+        head = [v for v in preferred if v in voices]
+        tail = [v for v in voices if v not in head]
+        return head + tail
+    return voices
 
 
 def voice_catalog_for_engine(engine_label: str) -> list[dict[str, str]]:
@@ -1972,8 +1995,8 @@ def apply_character_voices_to_segments(manifest: dict[str, Any], char_map: dict[
     from cached audio so regeneration can happen safely.
     """
     settings = manifest.get("settings", {})
-    narrator_voice = str(settings.get("narrator_voice", "en-US-GuyNeural") or "en-US-GuyNeural")
-    dialogue_voice = str(settings.get("dialogue_voice", "en-US-JennyNeural") or "en-US-JennyNeural")
+    narrator_voice = str(settings.get("narrator_voice", "en-US-AndrewNeural") or "en-US-AndrewNeural")
+    dialogue_voice = str(settings.get("dialogue_voice", "en-US-EmmaNeural") or "en-US-EmmaNeural")
     for chapter in manifest.get("chapters", []):
         for segment in chapter.get("segments", []):
             speaker = str(segment.get("speaker", "narrator") or "narrator")
@@ -2708,8 +2731,8 @@ def build_ui():
                 engine_name = normalize_engine_label(engine_label)
                 norm_speed_mode = normalize_speed_mode_label(speed_mode_label)
                 norm_dialogue_strategy = normalize_dialogue_strategy_label(dialogue_strategy_label)
-                narrator = narrator or "en-US-GuyNeural"
-                dialogue = dialogue or "en-US-JennyNeural"
+                narrator = narrator or "en-US-AndrewNeural"
+                dialogue = dialogue or "en-US-EmmaNeural"
                 max_concurrent = 1 if low_mem else create_tts_engine(engine_name).max_concurrent
                 settings = {
                     "tts_engine": engine_name,
@@ -2873,8 +2896,8 @@ def build_ui():
                 manifest = ensure_manifest_defaults(manifest)
                 settings = manifest.get("settings", {})
                 settings["tts_engine"] = normalize_engine_label(engine_label)
-                settings["narrator_voice"] = narrator or settings.get("narrator_voice", "en-US-GuyNeural")
-                settings["dialogue_voice"] = dialogue or settings.get("dialogue_voice", "en-US-JennyNeural")
+                settings["narrator_voice"] = narrator or settings.get("narrator_voice", "en-US-AndrewNeural")
+                settings["dialogue_voice"] = dialogue or settings.get("dialogue_voice", "en-US-EmmaNeural")
                 settings["speed_multiplier"] = float(speed)
                 settings["speed_mode"] = normalize_speed_mode_label(speed_mode_label)
                 parsed_pron = parse_pronunciation_table(pron_rows)
@@ -3190,10 +3213,12 @@ def build_ui():
                     )
                     return
                 primary_engine = "edge-tts"
-                selected_voice = str(quick_voice or "en-US-GuyNeural")
+                selected_voice = str(quick_voice or "en-US-AndrewNeural")
                 narrator = selected_voice
                 dialogue = selected_voice
                 output_mode = "m4b" if str(output_fmt).lower().startswith("m4b") else "mp3"
+                engine_for_quick = create_tts_engine(primary_engine)
+                quick_workers = min(engine_for_quick.max_concurrent, 4)
                 settings = {
                     "tts_engine": primary_engine,
                     "narrator_voice": narrator,
@@ -3203,8 +3228,8 @@ def build_ui():
                     "speed_multiplier": 1.0,
                     "speed_mode": "post_process",
                     "dialogue_detection_strategy": DEFAULT_DIALOGUE_STRATEGY,
-                    "max_concurrent": 1,
-                    "max_queue_size": LOW_MEMORY_QUEUE_SIZE,
+                    "max_concurrent": quick_workers,
+                    "max_queue_size": max(LOW_MEMORY_QUEUE_SIZE, quick_workers * 4),
                     "cache_max_size_mb": QUICK_CACHE_MAX_SIZE_MB,
                     "background_music": None,
                     "music_duck_db": -15,
