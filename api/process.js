@@ -61,8 +61,12 @@ module.exports = async function handler(req, res) {
 
     const jobId = createJobId();
     const chars = text.length;
-    const cps = 28; // edge-like estimate
-    const estMs = Math.max(4000, Math.min(180000, Math.floor((chars / cps) * 1000)));
+    const cps = 28; // edge-like estimate for non-demo estimates
+    // Demo jobs only drive UI progress; keep duration short so the web client
+    // (which polls for ~24–30s) reliably sees "completed" instead of timing out.
+    const estMs = demoMode
+      ? Math.min(14000, Math.max(900, Math.floor(chars * 1.2)))
+      : Math.max(4000, Math.min(180000, Math.floor((chars / cps) * 1000)));
     const createdAt = Date.now();
     JOBS.set(jobId, {
       createdAt,

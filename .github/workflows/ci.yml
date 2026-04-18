@@ -33,3 +33,14 @@ jobs:
 
       - name: API health smoke test
         run: node -e "const h=require('./api/health'); const r={setHeader(){},status(){return this},json(v){if(v.status!=='ok'){process.exit(1)}; console.log('ok')}}; h({},r)"
+
+      - name: Web TTS chunk helper smoke test
+        run: |
+          node --input-type=module -e "
+          import { chunkTextForSpeech } from './web/tts-demo.js';
+          const long = ('A'.repeat(40) + '. ').repeat(30);
+          const parts = chunkTextForSpeech(long, 50);
+          if (parts.length < 5) process.exit(1);
+          if (parts.some((p) => p.length > 120)) process.exit(1);
+          console.log('ok');
+          "

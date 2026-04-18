@@ -69,9 +69,23 @@
       </section>
 
       <section class="card">
+        <label for="voice-select"><strong>Browser voice</strong> (Web Speech API — quality varies by OS)</label>
+        <select id="voice-select" style="width: 100%; margin: 8px 0 10px; min-height: 44px; border-radius: 10px; padding: 8px; background: rgba(15, 23, 42, 0.9); color: #e2e8f0; border: 1px solid rgba(148, 163, 184, 0.35);"></select>
+        <div class="grid" style="margin-bottom: 10px;">
+          <label style="display: flex; flex-direction: column; gap: 4px; font-size: 14px;">
+            Speed
+            <input id="speech-rate" type="range" min="0.75" max="1.25" step="0.05" value="1" />
+          </label>
+          <label style="display: flex; flex-direction: column; gap: 4px; font-size: 14px;">
+            Pitch
+            <input id="speech-pitch" type="range" min="0.8" max="1.2" step="0.05" value="1" />
+          </label>
+        </div>
+        <p id="voice-hint" style="font-size: 13px; opacity: 0.85; margin: 0 0 10px;">Tip: For Edge-style neural quality, use the Python app with edge-tts or Kokoro offline.</p>
         <div class="grid">
           <button id="demo-generate" class="primary">Generate 5-minute demo</button>
           <button id="demo-speak" class="secondary">Play in browser voice</button>
+          <button id="demo-stop" class="secondary">Stop playback</button>
           <button id="demo-share" class="secondary">Share demo text</button>
           <button id="demo-save" class="secondary">Save draft locally</button>
           <button id="demo-download" class="secondary">Download demo text</button>
@@ -88,6 +102,7 @@
       import { makeDemoProject } from "/web/processor.js";
       import { loadDraft, saveDraft } from "/web/storage.js";
       import { pollCloudProcess, startCloudProcess } from "/web/api-client.js";
+      import { pickEnglishPreferred, speakQueuedChunks } from "/web/tts-demo.js";
 
       const input = document.getElementById("input");
       const fileInput = document.getElementById("file-input");
@@ -95,8 +110,12 @@
       const output = document.getElementById("output");
       const stats = document.getElementById("stats");
       const generateBtn = document.getElementById("demo-generate");
+      const voiceSelect = document.getElementById("voice-select");
+      const rateInput = document.getElementById("speech-rate");
+      const pitchInput = document.getElementById("speech-pitch");
       let currentDemo = null;
       let isGenerating = false;
+      let speechPlayToken = 0;
       const generateLabelIdle = "Generate 5-minute demo";
 
       const setStatus = (text) => { status.textContent = text; };
@@ -115,6 +134,36 @@
         const rem = sec % 60;
         stats.textContent = `Words: ${words} · Chars: ${chars} · Est: ${min}m ${rem}s`;
       };
+
+      const fillVoiceList = () => {
+        if (!("speechSynthesis" in window)) {
+          voiceSelect.innerHTML = "";
+          const opt = document.createElement("option");
+          opt.textContent = "Speech synthesis not available";
+          voiceSelect.appendChild(opt);
+          voiceSelect.disabled = true;
+          return;
+        }
+        const voices = window.speechSynthesis.getVoices();
+        const preferred = pickEnglishPreferred(voices);
+        const list = preferred.length ? preferred : voices;
+        const previous = voiceSelect.value;
+        voiceSelect.innerHTML = "";
+        for (const v of list) {
+          const opt = document.createElement("option");
+          opt.value = v.voiceURI;
+          opt.textContent = `${v.name} (${v.lang || "?"})`;
+          voiceSelect.appendChild(opt);
+        }
+        if (previous && [...voiceSelect.options].some((o) => o.value === previous)) {
+          voiceSelect.value = previous;
+        }
+      };
+
+      if ("speechSynthesis" in window) {
+        fillVoiceList();
+        window.speechSynthesis.addEventListener("voiceschanged", fillVoiceList);
+      }
 
       input.value = loadDraft() || "";
       updateStats();
@@ -158,9 +207,11 @@
             return;
           }
           const jobId = start.data.job_id;
-          setStatus(`Cloud demo job queued (${jobId}). Polling progress...`);
+          const estSec = Number(start.data.estimated_seconds || 15);
+          const maxPolls = Math.min(120, Math.max(25, Math.ceil(estSec) + 25));
+          setStatus(`Cloud demo job queued (${jobId}). Polling progress…`);
           let completed = false;
-          for (let attempt = 0; attempt < 24; attempt += 1) {
+          for (let attempt = 0; attempt < maxPolls; attempt += 1) {
             await new Promise((resolve) => setTimeout(resolve, 1000));
             const polled = await pollCloudProcess(jobId);
             if (!polled.ok || !polled.data) {
@@ -171,6 +222,7 @@
             setStatus(`Cloud job ${polled.data.status}: ${p}% · ETA ${eta}s`);
             if (polled.data.status === "completed") {
               completed = true;
+              setStatus("Cloud demo job completed. Try browser voice or full Python app for audio.");
               break;
             }
           }
@@ -182,7 +234,7 @@
         }
       });
 
-      document.getElementById("demo-speak").addEventListener("click", () => {
+      document.getElementById("demo-speak").addEventListener("click", async () => {
         if (!currentDemo) {
           setStatus("Generate demo first.");
           return;
@@ -191,12 +243,36 @@
           setStatus("Browser speech synthesis not available.");
           return;
         }
-        const utterance = new SpeechSynthesisUtterance(currentDemo.previewText);
-        utterance.rate = 1.0;
-        utterance.onstart = () => setStatus("Playing browser voice preview...");
-        utterance.onend = () => setStatus("Playback finished.");
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(utterance);
+        const myToken = (speechPlayToken += 1);
+        const rate = Number(rateInput.value) || 1;
+        const pitch = Number(pitchInput.value) || 1;
+        const voiceURI = voiceSelect.value || "";
+        try {
+          await speakQueuedChunks(window.speechSynthesis, currentDemo.previewText, {
+            voiceURI,
+            rate,
+            pitch,
+            volume: 1,
+            maxChunkChars: 380,
+            pauseMs: 60,
+            onStatus: (msg) => {
+              if (myToken === speechPlayToken) setStatus(msg);
+            },
+          });
+        } catch (err) {
+          if (myToken === speechPlayToken) {
+            const detail = err instanceof Error ? err.message : String(err);
+            setStatus(`Playback error: ${detail}`);
+          }
+        }
+      });
+
+      document.getElementById("demo-stop").addEventListener("click", () => {
+        speechPlayToken += 1;
+        if ("speechSynthesis" in window) {
+          window.speechSynthesis.cancel();
+        }
+        setStatus("Playback stopped.");
       });
 
       document.getElementById("demo-share").addEventListener("click", async () => {

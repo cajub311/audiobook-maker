@@ -108,6 +108,15 @@ class ReliabilityTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validate_local_input_file(fake_pdf)
 
+    def test_upload_size_validation_applies_to_epub_not_only_pdf(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            big_epub = Path(tmp) / "book.epub"
+            big_epub.write_bytes(b"x" * 120)
+            with patch("audiobook_creator_v7.MAX_UPLOAD_FILE_BYTES", 10):
+                with self.assertRaises(ValueError) as ctx:
+                    validate_local_input_file(big_epub)
+                self.assertIn("MB", str(ctx.exception))
+
     def test_dialogue_detection_regex_path(self):
         text = '"Hello there," Alice said.\n\n"Hi," Bob said.'
         found = detect_all_dialogue(text)

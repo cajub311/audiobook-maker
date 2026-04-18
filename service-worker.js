@@ -7,6 +7,7 @@ const APP_SHELL = [
   "/web/processor.js",
   "/web/api-client.js",
   "/web/storage.js",
+  "/web/tts-demo.js",
   "/manifest.webmanifest",
   "/icon.svg",
   "/assets/gradio-ui-preview.svg",

@@ -281,9 +281,16 @@ def copy_uploaded_input(file_obj: Any, slot: str) -> str:
     src = Path(src_path)
     if not src.exists():
         return ""
+    validate_local_input_file(src)
     ext = src.suffix.lower() or ".txt"
     target = SAVED_INPUTS_DIR / f"{slugify(slot, fallback='input')}_{uuid.uuid4().hex[:10]}{ext}"
-    shutil.copy2(src, target)
+    # Stream copy avoids loading multi-hundred-MB uploads into extra buffers.
+    with src.open("rb") as src_f, target.open("wb") as dst_f:
+        shutil.copyfileobj(src_f, dst_f, length=1024 * 1024)
+    try:
+        shutil.copystat(src, target)
+    except OSError:
+        pass
     return str(target)
 
 
