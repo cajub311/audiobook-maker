@@ -21,8 +21,24 @@ export async function makeAudiobook({
   onProgress,
   onChunk,
   signal,
+  // Optional: supply pre-chunked items with per-chunk voice/speaker metadata.
+  // Each item is { text: string, voice?: string, rate?, pitch?, isDialogue?, speaker? }.
+  // When provided, `text` and the default chunker are ignored.
+  items,
+  // Optional: given a chunk string (or item), return a voice id to use for it.
+  voiceResolver,
 }) {
-  const chunks = chunkText(text, maxChunkChars);
+  let chunks;
+  let itemsResolved;
+  if (Array.isArray(items) && items.length) {
+    itemsResolved = items
+      .map((it) => (typeof it === "string" ? { text: String(it).trim() } : { ...it, text: String(it.text || "").trim() }))
+      .filter((it) => it.text.length > 0);
+    chunks = itemsResolved.map((it) => it.text);
+  } else {
+    chunks = chunkText(text, maxChunkChars);
+    itemsResolved = chunks.map((c) => ({ text: c }));
+  }
   if (!chunks.length) {
     return { blob: null, chunks: [], stats: { count: 0, totalChars: 0, bytes: 0, durationMs: 0 } };
   }
@@ -52,12 +68,26 @@ export async function makeAudiobook({
     while (!failure) {
       const index = cursor++;
       if (index >= chunks.length) return;
+      const item = itemsResolved[index];
+      let chunkVoice = item.voice || voice;
+      if (typeof voiceResolver === "function") {
+        const resolved = voiceResolver(item, index);
+        if (resolved) chunkVoice = resolved;
+      }
+      const chunkRate = item.rate != null ? item.rate : rate;
+      const chunkPitch = item.pitch != null ? item.pitch : pitch;
       try {
-        const blob = await synthesizeChunk(chunks[index], { voice, rate, pitch, format, signal });
+        const blob = await synthesizeChunk(item.text, {
+          voice: chunkVoice,
+          rate: chunkRate,
+          pitch: chunkPitch,
+          format,
+          signal,
+        });
         parts[index] = blob;
         stats.bytes += blob.size;
         completed += 1;
-        if (typeof onChunk === "function") onChunk({ index, blob });
+        if (typeof onChunk === "function") onChunk({ index, blob, item });
         report();
       } catch (err) {
         failure = err;

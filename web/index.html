@@ -107,8 +107,12 @@
 
       <section class="card">
         <h2>1 &middot; Your text</h2>
-        <label for="text-input">Paste book text, article, or upload a <code>.txt</code> file</label>
-        <input id="file-input" type="file" accept=".txt,text/plain,.md,text/markdown" style="margin-bottom: 10px;" />
+        <label for="text-input">Paste book text, or upload a <code>.txt</code>, <code>.epub</code>, or <code>.pdf</code> file</label>
+        <input id="file-input" type="file" accept=".txt,.md,.epub,.pdf,text/plain,text/markdown,application/epub+zip,application/pdf" style="margin-bottom: 10px;" />
+        <div id="upload-progress" hidden style="margin: 4px 0 10px;">
+          <div class="progress-track"><div id="upload-bar" class="progress-bar" style="width: 0%"></div></div>
+          <div id="upload-label" class="tip" style="margin-top: 4px;">Loading…</div>
+        </div>
         <textarea id="text-input" placeholder="Paste a chapter or paste the whole book. Long inputs are split automatically."></textarea>
         <div class="stats">
           <span>Words: <strong id="stat-words">0</strong></span>
@@ -161,6 +165,19 @@
             </div>
           </div>
         </details>
+
+        <details class="toggle-details" id="speakers-details">
+          <summary>Multi-voice narration <span id="speakers-count" style="color: #c7d2fe; font-weight: 600;">(off)</span></summary>
+          <div class="row" style="margin-top: 8px;">
+            <div>
+              <label for="voice-dialogue-select">Dialogue voice (for quoted lines)</label>
+              <select id="voice-dialogue-select"><option value="">Same as narrator</option></select>
+            </div>
+          </div>
+          <p class="tip" style="margin-top: 6px;">Detected speakers appear below once you load text. Pick a dedicated voice per character to give each one a distinct sound.</p>
+          <div id="speakers-list" style="display: grid; gap: 8px; margin-top: 8px;"></div>
+          <button id="btn-detect-speakers" class="secondary" type="button" style="margin-top: 10px; min-height: 40px;">Re-detect chapters &amp; speakers</button>
+        </details>
       </section>
 
       <section class="card">
@@ -205,6 +222,8 @@
       import { fetchVoices, synthesizeChunk } from "/web/api-client.js";
       import { makeAudiobook } from "/web/audiobook-maker.js";
       import { loadDraft, saveDraft } from "/web/storage.js";
+      import { parseAnyFile } from "/web/parsers.js";
+      import { splitChapters, splitIntoChunks, detectSpeakers } from "/web/text.js";
 
       const $ = (id) => document.getElementById(id);
       const statusEl = $("status");
@@ -244,6 +263,9 @@
         previewController: null,
         previewUrl: null,
         resultUrl: null,
+        dialogueVoice: "",
+        speakerVoices: {},
+        speakers: [],
       };
 
       const setStatus = (html, { progress } = {}) => {
@@ -285,6 +307,106 @@
         statAudio.textContent = formatMmSs(estSec);
       };
 
+      const speakersDetails = $("speakers-details");
+      const speakersCount = $("speakers-count");
+      const speakersList = $("speakers-list");
+      const voiceDialogueSelect = $("voice-dialogue-select");
+      const btnDetectSpeakers = $("btn-detect-speakers");
+
+      const buildVoiceOptions = (selected) => {
+        let html = '<option value="">Use narrator voice</option>';
+        const groups = {};
+        for (const v of state.voices) {
+          const loc = v.locale || "other";
+          (groups[loc] ||= []).push(v);
+        }
+        const keys = Object.keys(groups).sort((a, b) => {
+          if (a.startsWith("en-") && !b.startsWith("en-")) return -1;
+          if (!a.startsWith("en-") && b.startsWith("en-")) return 1;
+          return a.localeCompare(b);
+        });
+        for (const k of keys) {
+          html += `<optgroup label="${k}">`;
+          for (const v of groups[k]) {
+            const sel = v.id === selected ? " selected" : "";
+            html += `<option value="${v.id}"${sel}>${v.label.replace(/</g, "&lt;")}</option>`;
+          }
+          html += "</optgroup>";
+        }
+        return html;
+      };
+
+      const renderSpeakers = () => {
+        voiceDialogueSelect.innerHTML = buildVoiceOptions(state.dialogueVoice);
+        speakersList.innerHTML = "";
+        const active = state.speakers.length;
+        speakersCount.textContent = active ? `(${active} detected)` : "(off)";
+        if (!active) {
+          speakersList.innerHTML =
+            '<p class="tip" style="margin: 0;">No named speakers detected yet. Paste dialogue with lines like &ldquo;Run,&rdquo; Alice said. to auto-detect characters.</p>';
+          return;
+        }
+        for (const sp of state.speakers) {
+          const row = document.createElement("div");
+          row.style.cssText = "display: grid; grid-template-columns: 1fr 1.6fr; gap: 8px; align-items: center; background: rgba(2,6,23,0.45); padding: 8px 10px; border-radius: 10px; border: 1px solid var(--panel-border);";
+          const safeName = sp.name.replace(/</g, "&lt;");
+          row.innerHTML = `<div><div style="font-weight:600;">${safeName}</div><div class="tip" style="margin:0;">${sp.count} line${sp.count === 1 ? "" : "s"}</div></div><select data-speaker="${safeName.replace(/"/g, "&quot;")}">${buildVoiceOptions(state.speakerVoices[sp.name] || "")}</select>`;
+          speakersList.appendChild(row);
+        }
+        speakersList.querySelectorAll("select[data-speaker]").forEach((sel) => {
+          sel.addEventListener("change", () => {
+            const name = sel.getAttribute("data-speaker");
+            if (sel.value) state.speakerVoices[name] = sel.value;
+            else delete state.speakerVoices[name];
+            persistVoiceMap();
+          });
+        });
+      };
+
+      const persistVoiceMap = () => {
+        try {
+          localStorage.setItem(
+            "abm-voice-map",
+            JSON.stringify({ dialogue: state.dialogueVoice, speakers: state.speakerVoices }),
+          );
+        } catch (_err) {
+          // localStorage may be disabled in private windows
+        }
+      };
+
+      const restoreVoiceMap = () => {
+        try {
+          const raw = localStorage.getItem("abm-voice-map");
+          if (!raw) return;
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === "object") {
+            state.dialogueVoice = parsed.dialogue || "";
+            state.speakerVoices = parsed.speakers || {};
+          }
+        } catch (_err) {
+          // ignore corrupt state
+        }
+      };
+
+      const detectFromText = () => {
+        const raw = textInput.value || "";
+        const chapters = splitChapters(raw);
+        const chunks = splitIntoChunks(chapters);
+        state.speakers = detectSpeakers(chunks).slice(0, 24);
+        renderSpeakers();
+      };
+
+      voiceDialogueSelect.addEventListener("change", () => {
+        state.dialogueVoice = voiceDialogueSelect.value;
+        persistVoiceMap();
+      });
+      btnDetectSpeakers.addEventListener("click", () => {
+        detectFromText();
+        if (!state.speakers.length) setStatus("No named speakers detected. All lines will use the narrator voice.");
+        else setStatus(`Detected <strong>${state.speakers.length}</strong> speakers. Assign voices below.`);
+        speakersDetails.open = true;
+      });
+
       const updateRateDisplay = () => {
         const v = Number(rateInput.value) || 0;
         const sign = v > 0 ? "+" : "";
@@ -296,29 +418,55 @@
         pitchDisplay.textContent = v === 0 ? "0 Hz" : `${sign}${v} Hz`;
       };
 
+      let detectTimer = null;
+      const scheduleDetect = () => {
+        clearTimeout(detectTimer);
+        detectTimer = setTimeout(detectFromText, 400);
+      };
       textInput.addEventListener("input", () => {
         updateStats();
         saveDraft(textInput.value);
+        scheduleDetect();
       });
       rateInput.addEventListener("input", updateRateDisplay);
       pitchInput.addEventListener("input", updatePitchDisplay);
 
+      const uploadProgress = $("upload-progress");
+      const uploadBar = $("upload-bar");
+      const uploadLabel = $("upload-label");
+
       fileInput.addEventListener("change", async () => {
         const file = fileInput.files && fileInput.files[0];
         if (!file) return;
-        if (file.size > 5 * 1024 * 1024) {
-          setError("File is larger than 5 MB. Please paste in smaller chunks.");
+        if (file.size > 50 * 1024 * 1024) {
+          setError("File is larger than 50 MB. Please upload a smaller book.");
           return;
         }
+        uploadProgress.hidden = false;
+        uploadBar.style.width = "0%";
+        uploadLabel.textContent = `Reading ${file.name}…`;
+        setError(null);
         try {
-          const text = await file.text();
-          textInput.value = text;
+          const result = await parseAnyFile(file, (pct, note) => {
+            uploadBar.style.width = `${Math.max(2, Math.min(100, Math.round(pct * 100)))}%`;
+            if (note) uploadLabel.textContent = note;
+          });
+          textInput.value = result.text;
           updateStats();
-          saveDraft(text);
-          setStatus(`Loaded <strong>${file.name}</strong> (${formatBytes(file.size)}).`);
-          setError(null);
+          saveDraft(result.text);
+          detectFromText();
+          const bits = [`Loaded <strong>${file.name}</strong>`];
+          if (result.kind && result.kind !== "txt") bits.push(`parsed as ${result.kind.toUpperCase()}`);
+          if (result.title) bits.push(`title: ${result.title}`);
+          if (result.author) bits.push(`author: ${result.author}`);
+          setStatus(bits.join(" &middot; "));
+          uploadLabel.textContent = `Loaded ${formatBytes(result.text.length)} of text`;
+          setTimeout(() => { uploadProgress.hidden = true; }, 1500);
         } catch (err) {
+          uploadProgress.hidden = true;
           setError("Could not read file: " + (err && err.message ? err.message : err));
+        } finally {
+          fileInput.value = "";
         }
       });
 
@@ -332,6 +480,7 @@
           + `Try different voices, adjust the speed, and download your audiobook as an MP3.`;
         updateStats();
         saveDraft(textInput.value);
+        detectFromText();
         setStatus("Loaded sample text. Press <strong>Create audiobook</strong>.");
         setError(null);
       });
@@ -383,6 +532,7 @@
         } else {
           setStatus(`Loaded ${voices.length} neural voices. Pick one and generate!`);
         }
+        renderSpeakers();
       };
 
       const previewSample = "This is a preview of how the selected voice sounds when narrating your audiobook.";
@@ -447,12 +597,32 @@
         const concurrency = Math.max(1, Math.min(8, Number(concurrencyInput.value) || 4));
         const format = formatSelect.value;
 
-        const chunks = chunkText(text);
-        setStatus(`Preparing <strong>${chunks.length}</strong> chunks with <strong>${voice}</strong>...`, { progress: 0 });
+        const useMultiVoice =
+          !!state.dialogueVoice || Object.keys(state.speakerVoices || {}).length > 0;
+        let items = null;
+        if (useMultiVoice) {
+          const chapters = splitChapters(text);
+          const semanticChunks = splitIntoChunks(chapters);
+          items = semanticChunks.map((c) => ({
+            text: c.text,
+            voice:
+              (c.speaker && state.speakerVoices[c.speaker]) ||
+              (c.isDialogue && state.dialogueVoice) ||
+              voice,
+            speaker: c.speaker || null,
+            isDialogue: !!c.isDialogue,
+          }));
+        }
+        const plannedChunks = items ? items.length : chunkText(text).length;
+        setStatus(
+          `Preparing <strong>${plannedChunks}</strong> chunks with <strong>${voice}</strong>${useMultiVoice ? " + character voices" : ""}...`,
+          { progress: 0 },
+        );
 
         try {
           const result = await makeAudiobook({
-            text,
+            text: items ? undefined : text,
+            items,
             voice,
             rate,
             pitch,
@@ -525,10 +695,13 @@
       }
 
       textInput.value = loadDraft() || "";
+      restoreVoiceMap();
       updateStats();
       updateRateDisplay();
       updatePitchDisplay();
-      populateVoices();
+      populateVoices().then(() => {
+        detectFromText();
+      });
 
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker.register("/service-worker.js").catch(() => {});

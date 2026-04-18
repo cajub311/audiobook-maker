@@ -7,6 +7,7 @@ const APP_SHELL = [
   "/web/api-client.js",
   "/web/audiobook-maker.js",
   "/web/chunker.js",
+  "/web/parsers.js",
   "/web/processor.js",
   "/web/storage.js",
   "/manifest.webmanifest",
