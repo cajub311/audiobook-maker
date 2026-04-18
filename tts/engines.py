@@ -28,10 +28,52 @@ def _parse_voice_string(voice: str) -> tuple[str, str, str | None]:
     return voice_name, pitch, rate_override
 
 
+# Abbreviations expanded before synthesis so TTS doesn't stumble on trailing dots.
+_ABBREVS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\bMr\.", re.I), "Mister"),
+    (re.compile(r"\bMrs\.", re.I), "Missus"),
+    (re.compile(r"\bMs\.", re.I), "Miss"),
+    (re.compile(r"\bDr\.", re.I), "Doctor"),
+    (re.compile(r"\bProf\.", re.I), "Professor"),
+    (re.compile(r"\bSgt\.", re.I), "Sergeant"),
+    (re.compile(r"\bCpl\.", re.I), "Corporal"),
+    (re.compile(r"\bLt\.", re.I), "Lieutenant"),
+    (re.compile(r"\bCapt\.", re.I), "Captain"),
+    (re.compile(r"\bSt\.\s+(?=[A-Z])", re.I), "Saint "),
+    (re.compile(r"\bvs\.", re.I), "versus"),
+    (re.compile(r"\bJr\.", re.I), "Junior"),
+    (re.compile(r"\bSr\.", re.I), "Senior"),
+    (re.compile(r"\betc\.", re.I), "et cetera"),
+]
+
+
 def _clean_for_tts(text: str) -> str:
-    """Strip markup that edge-tts would read aloud as literal words."""
-    text = re.sub(r"<[^>]+>", "", text)   # HTML / SSML / XML tags
-    text = re.sub(r"[*_`~#\\]", "", text) # markdown emphasis / heading / escape chars
+    """Normalize text so edge-tts speaks it naturally without reading markup as words."""
+    # HTML entity decode before stripping tags
+    text = (
+        text.replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&nbsp;", " ")
+            .replace("&#39;", "'")
+            .replace("&quot;", '"')
+    )
+    # Strip HTML / SSML / XML tags (after entity expansion so & doesn't confuse it)
+    text = re.sub(r"<[^>]+>", "", text)
+    # Expand abbreviations so trailing dots don't cause false sentence breaks
+    for pattern, replacement in _ABBREVS:
+        text = pattern.sub(replacement, text)
+    # Em-dash → comma pause (reads as a natural beat rather than silence)
+    text = re.sub(r"\s*—\s*", ", ", text)
+    # Normalize ellipsis sequences → single Unicode ellipsis (edge-tts pauses on it)
+    text = re.sub(r"\.\.\.+", "…", text)
+    # Collapse repeated punctuation: !!! → !, ??? → ?
+    text = re.sub(r"([!?]){2,}", r"\1", text)
+    # ALL-CAPS words (4+ letters) → Title Case so TTS doesn't shout or spell them out
+    text = re.sub(r"\b([A-Z]{4,})\b", lambda m: m.group(1).capitalize(), text)
+    # Markdown formatting characters
+    text = re.sub(r"[*_`~#\\]", "", text)
+    # Collapse whitespace
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
