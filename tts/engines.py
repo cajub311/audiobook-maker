@@ -59,6 +59,8 @@ class TTSEngine(ABC):
 class EdgeTTSEngine(TTSEngine):
     def __init__(self, deps: EngineDeps) -> None:
         self._deps = deps
+        self._volume = str(os.environ.get("ABM_EDGE_VOLUME", "+0%") or "+0%")
+        self._pitch = str(os.environ.get("ABM_EDGE_PITCH", "+0Hz") or "+0Hz")
 
     @property
     def max_concurrent(self) -> int:
@@ -77,8 +79,8 @@ class EdgeTTSEngine(TTSEngine):
             return [v for v in formatted if v["name"]]
         except Exception:
             return [
-                {"name": "en-US-GuyNeural", "locale": "en-US"},
-                {"name": "en-US-JennyNeural", "locale": "en-US"},
+                {"name": "en-US-AndrewNeural", "locale": "en-US"},
+                {"name": "en-US-AriaNeural", "locale": "en-US"},
                 {"name": "en-GB-RyanNeural", "locale": "en-GB"},
             ]
 
@@ -94,7 +96,13 @@ class EdgeTTSEngine(TTSEngine):
         try:
             import edge_tts  # type: ignore
 
-            communicate = edge_tts.Communicate(text=text, voice=voice, rate=rate_str)
+            communicate = edge_tts.Communicate(
+                text=text,
+                voice=voice,
+                rate=rate_str,
+                volume=self._volume,
+                pitch=self._pitch,
+            )
             await communicate.save(output_path)
             duration = self._deps.get_duration_ffprobe_fn(output_path)
             return TTSResult(audio_path=output_path, duration_seconds=duration, sample_rate=24000)

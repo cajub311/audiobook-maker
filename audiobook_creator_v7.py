@@ -46,11 +46,14 @@ from config import (
     CACHE_SLIDER_STEP_MB,
     DEFAULT_CACHE_MAX_SIZE_MB,
     DEFAULT_DIALOGUE_STRATEGY,
+    DEFAULT_DIALOGUE_VOICE,
     DEFAULT_FFMPEG_RETRIES,
     DEFAULT_FFMPEG_TIMEOUT_S,
     DEFAULT_QUEUE_SIZE,
+    DEFAULT_NARRATOR_VOICE,
     DEFAULT_SEGMENT_CHUNK_CHARS,
     DEFAULT_TTS_MIN_REQUEST_INTERVAL_S,
+    DEFAULT_TTS_RATE_LIMIT_BURST,
     DEFAULT_URL_FETCH_TIMEOUT_S,
     LOW_MEMORY_QUEUE_SIZE,
     MANIFESTS_DIR,
@@ -281,9 +284,11 @@ def copy_uploaded_input(file_obj: Any, slot: str) -> str:
     src = Path(src_path)
     if not src.exists():
         return ""
+    validate_local_input_file(src)
     ext = src.suffix.lower() or ".txt"
     target = SAVED_INPUTS_DIR / f"{slugify(slot, fallback='input')}_{uuid.uuid4().hex[:10]}{ext}"
-    shutil.copy2(src, target)
+    # copyfile avoids duplicating xattrs/metadata and is typically faster for large uploads.
+    shutil.copyfile(src, target)
     return str(target)
 
 
@@ -449,8 +454,8 @@ def run_with_timeout(task: Callable[[], str], timeout_s: float) -> str:
 
 
 def estimate_generation_seconds(total_chars: int, engine_name: str) -> int:
-    # Rough estimates for progress preview.
-    cps = 28 if "edge" in engine_name else 16
+    # Rough estimates for progress preview (chars per second of *audio*, not TTS throughput).
+    cps = 22 if "edge" in engine_name.lower() else 16
     return int(total_chars / max(cps, 1))
 
 
@@ -470,20 +475,35 @@ def run_coro_sync(coro: Any) -> Any:
 
 
 class AsyncRateLimiter:
-    def __init__(self, min_interval_s: float = 0.0) -> None:
+    """
+    Token-bucket style limiter for outbound TTS (Edge) calls.
+
+    A single global lock with per-request sleep forces workers to run strictly
+    one-after-another and wastes concurrency. This refills up to ``burst`` tokens
+    while still averaging at most one start every ``min_interval_s``.
+    """
+
+    def __init__(self, min_interval_s: float = 0.0, burst: int = 8) -> None:
         self.min_interval_s = max(0.0, float(min_interval_s))
+        self.burst = max(1, int(burst))
         self._lock = asyncio.Lock()
-        self._next_allowed_ts = 0.0
+        self._tokens = float(self.burst)
+        self._stamp = time.monotonic()
 
     async def wait_turn(self) -> None:
         if self.min_interval_s <= 0.0:
             return
-        async with self._lock:
-            now = time.monotonic()
-            if now < self._next_allowed_ts:
-                await asyncio.sleep(self._next_allowed_ts - now)
+        while True:
+            wait_s = 0.0
+            async with self._lock:
                 now = time.monotonic()
-            self._next_allowed_ts = now + self.min_interval_s
+                self._tokens = min(float(self.burst), self._tokens + (now - self._stamp) / self.min_interval_s)
+                self._stamp = now
+                if self._tokens >= 1.0:
+                    self._tokens -= 1.0
+                    return
+                wait_s = max((1.0 - self._tokens) * self.min_interval_s, 0.001)
+            await asyncio.sleep(wait_s)
 
 
 def create_tts_engine(engine_name: str) -> TTSEngine:
@@ -670,8 +690,8 @@ def ensure_manifest_defaults(manifest: dict[str, Any]) -> dict[str, Any]:
     manifest.setdefault("settings", {})
     settings = manifest["settings"]
     settings.setdefault("tts_engine", "edge-tts")
-    settings.setdefault("narrator_voice", "en-US-GuyNeural")
-    settings.setdefault("dialogue_voice", "en-US-JennyNeural")
+    settings.setdefault("narrator_voice", DEFAULT_NARRATOR_VOICE)
+    settings.setdefault("dialogue_voice", DEFAULT_DIALOGUE_VOICE)
     settings.setdefault("character_voices", {})
     settings.setdefault("pronunciation_overrides", {})
     settings.setdefault("speed_multiplier", 1.0)
@@ -685,6 +705,7 @@ def ensure_manifest_defaults(manifest: dict[str, Any]) -> dict[str, Any]:
     settings.setdefault("enable_free_cloud_memory", False)
     settings.setdefault("free_cloud_manifest_url", "")
     settings.setdefault("tts_min_request_interval_s", DEFAULT_TTS_MIN_REQUEST_INTERVAL_S)
+    settings.setdefault("tts_rate_limit_burst", DEFAULT_TTS_RATE_LIMIT_BURST)
     settings.setdefault("cache_key_schema_version", CACHE_KEY_SCHEMA_VERSION)
     manifest.setdefault("book", {})
     manifest.setdefault("chapters", [])
@@ -718,7 +739,7 @@ def ensure_manifest_defaults(manifest: dict[str, Any]) -> dict[str, Any]:
             seg.setdefault("speaker", "narrator")
             seg.setdefault("speaker_method", "unknown")
             seg.setdefault("speaker_confidence", 0.0)
-            seg.setdefault("voice", settings.get("narrator_voice", "en-US-GuyNeural"))
+            seg.setdefault("voice", settings.get("narrator_voice", DEFAULT_NARRATOR_VOICE))
             seg.setdefault("status", "pending")
             seg.setdefault("cache_file", None)
             seg.setdefault("duration_seconds", None)
@@ -778,8 +799,8 @@ def stage_parse(
     ensure_runtime_dirs()
     settings = dict(settings or {})
     engine_name = settings.get("tts_engine", "edge-tts")
-    narrator_voice = settings.get("narrator_voice", "en-US-GuyNeural")
-    dialogue_voice = settings.get("dialogue_voice", "en-US-JennyNeural")
+    narrator_voice = settings.get("narrator_voice", DEFAULT_NARRATOR_VOICE)
+    dialogue_voice = settings.get("dialogue_voice", DEFAULT_DIALOGUE_VOICE)
     speed = float(settings.get("speed_multiplier", 1.0))
     speed_mode = str(settings.get("speed_mode", "native"))
     dialogue_strategy = str(settings.get("dialogue_detection_strategy", DEFAULT_DIALOGUE_STRATEGY))
@@ -795,6 +816,7 @@ def stage_parse(
     settings.setdefault("enable_free_cloud_memory", False)
     settings.setdefault("free_cloud_manifest_url", "")
     settings.setdefault("tts_min_request_interval_s", DEFAULT_TTS_MIN_REQUEST_INTERVAL_S)
+    settings.setdefault("tts_rate_limit_burst", DEFAULT_TTS_RATE_LIMIT_BURST)
     settings.setdefault("cache_key_schema_version", CACHE_KEY_SCHEMA_VERSION)
 
     source_chapters, meta, source_ref, source_type = extract_source_chapters(input_path, url, raw_text)
@@ -934,7 +956,10 @@ def stage_parse(
     for chapter in manifest.get("chapters", []):
         for segment in chapter.get("segments", []):
             text = str(segment.get("text", "") or "")
-            voice = str(segment.get("voice", settings.get("narrator_voice", "en-US-GuyNeural")) or settings.get("narrator_voice", "en-US-GuyNeural"))
+            voice = str(
+                segment.get("voice", settings.get("narrator_voice", DEFAULT_NARRATOR_VOICE))
+                or settings.get("narrator_voice", DEFAULT_NARRATOR_VOICE)
+            )
             text_hash = hashlib.md5(f"{text}|{voice}|{engine_name}|{speed}".encode("utf-8")).hexdigest()
             segment["text_hash"] = text_hash
             cached_file = cache.get(
@@ -1009,7 +1034,10 @@ async def stage_generate(
     max_workers = min(engine.max_concurrent, max(1, int(settings.get("max_concurrent", engine.max_concurrent))))
     rate_limiter: Optional[AsyncRateLimiter] = None
     if engine.requires_internet:
-        rate_limiter = AsyncRateLimiter(float(settings.get("tts_min_request_interval_s", DEFAULT_TTS_MIN_REQUEST_INTERVAL_S)))
+        rate_limiter = AsyncRateLimiter(
+            float(settings.get("tts_min_request_interval_s", DEFAULT_TTS_MIN_REQUEST_INTERVAL_S)),
+            burst=int(settings.get("tts_rate_limit_burst", DEFAULT_TTS_RATE_LIMIT_BURST)),
+        )
 
     pending: list[tuple[int, int]] = []
     for c_idx, chapter in enumerate(manifest.get("chapters", [])):
@@ -1056,7 +1084,7 @@ async def stage_generate(
         segment = chapter["segments"][seg_idx]
         text = segment.get("text", "")
         speaker = segment.get("speaker", "narrator")
-        voice = segment.get("voice") or settings.get("narrator_voice", "en-US-GuyNeural")
+        voice = segment.get("voice") or settings.get("narrator_voice", DEFAULT_NARRATOR_VOICE)
         transformed_text = pronunciation.apply(text)
         tts_speed = speed if speed_mode == "native" else 1.0
         try:
@@ -1972,8 +2000,8 @@ def apply_character_voices_to_segments(manifest: dict[str, Any], char_map: dict[
     from cached audio so regeneration can happen safely.
     """
     settings = manifest.get("settings", {})
-    narrator_voice = str(settings.get("narrator_voice", "en-US-GuyNeural") or "en-US-GuyNeural")
-    dialogue_voice = str(settings.get("dialogue_voice", "en-US-JennyNeural") or "en-US-JennyNeural")
+    narrator_voice = str(settings.get("narrator_voice", DEFAULT_NARRATOR_VOICE) or DEFAULT_NARRATOR_VOICE)
+    dialogue_voice = str(settings.get("dialogue_voice", DEFAULT_DIALOGUE_VOICE) or DEFAULT_DIALOGUE_VOICE)
     for chapter in manifest.get("chapters", []):
         for segment in chapter.get("segments", []):
             speaker = str(segment.get("speaker", "narrator") or "narrator")
@@ -2708,8 +2736,8 @@ def build_ui():
                 engine_name = normalize_engine_label(engine_label)
                 norm_speed_mode = normalize_speed_mode_label(speed_mode_label)
                 norm_dialogue_strategy = normalize_dialogue_strategy_label(dialogue_strategy_label)
-                narrator = narrator or "en-US-GuyNeural"
-                dialogue = dialogue or "en-US-JennyNeural"
+                narrator = narrator or DEFAULT_NARRATOR_VOICE
+                dialogue = dialogue or DEFAULT_DIALOGUE_VOICE
                 max_concurrent = 1 if low_mem else create_tts_engine(engine_name).max_concurrent
                 settings = {
                     "tts_engine": engine_name,
@@ -2729,6 +2757,7 @@ def build_ui():
                     "enable_free_cloud_memory": bool(cloud_enabled),
                     "free_cloud_manifest_url": str(cloud_url or ""),
                     "tts_min_request_interval_s": DEFAULT_TTS_MIN_REQUEST_INTERVAL_S,
+                    "tts_rate_limit_burst": DEFAULT_TTS_RATE_LIMIT_BURST,
                 }
                 parse_started = time.time()
 
@@ -2873,8 +2902,8 @@ def build_ui():
                 manifest = ensure_manifest_defaults(manifest)
                 settings = manifest.get("settings", {})
                 settings["tts_engine"] = normalize_engine_label(engine_label)
-                settings["narrator_voice"] = narrator or settings.get("narrator_voice", "en-US-GuyNeural")
-                settings["dialogue_voice"] = dialogue or settings.get("dialogue_voice", "en-US-JennyNeural")
+                settings["narrator_voice"] = narrator or settings.get("narrator_voice", DEFAULT_NARRATOR_VOICE)
+                settings["dialogue_voice"] = dialogue or settings.get("dialogue_voice", DEFAULT_DIALOGUE_VOICE)
                 settings["speed_multiplier"] = float(speed)
                 settings["speed_mode"] = normalize_speed_mode_label(speed_mode_label)
                 parsed_pron = parse_pronunciation_table(pron_rows)
@@ -3190,10 +3219,12 @@ def build_ui():
                     )
                     return
                 primary_engine = "edge-tts"
-                selected_voice = str(quick_voice or "en-US-GuyNeural")
+                selected_voice = str(quick_voice or DEFAULT_NARRATOR_VOICE)
                 narrator = selected_voice
                 dialogue = selected_voice
                 output_mode = "m4b" if str(output_fmt).lower().startswith("m4b") else "mp3"
+                quick_engine = create_tts_engine(primary_engine)
+                quick_workers = min(8, max(2, quick_engine.max_concurrent))
                 settings = {
                     "tts_engine": primary_engine,
                     "narrator_voice": narrator,
@@ -3203,8 +3234,8 @@ def build_ui():
                     "speed_multiplier": 1.0,
                     "speed_mode": "post_process",
                     "dialogue_detection_strategy": DEFAULT_DIALOGUE_STRATEGY,
-                    "max_concurrent": 1,
-                    "max_queue_size": LOW_MEMORY_QUEUE_SIZE,
+                    "max_concurrent": quick_workers,
+                    "max_queue_size": DEFAULT_QUEUE_SIZE,
                     "cache_max_size_mb": QUICK_CACHE_MAX_SIZE_MB,
                     "background_music": None,
                     "music_duck_db": -15,
@@ -3212,6 +3243,7 @@ def build_ui():
                     "enable_free_cloud_memory": bool(use_cloud_memory),
                     "free_cloud_manifest_url": "",
                     "tts_min_request_interval_s": DEFAULT_TTS_MIN_REQUEST_INTERVAL_S,
+                    "tts_rate_limit_burst": DEFAULT_TTS_RATE_LIMIT_BURST,
                 }
                 yield (
                     "📖 Parsing source…",

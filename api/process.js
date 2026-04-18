@@ -61,8 +61,9 @@ module.exports = async function handler(req, res) {
 
     const jobId = createJobId();
     const chars = text.length;
-    const cps = 28; // edge-like estimate
-    const estMs = Math.max(4000, Math.min(180000, Math.floor((chars / cps) * 1000)));
+    // Align with Python `estimate_generation_seconds` (~22 chars/s of audio for Edge).
+    const cps = 22;
+    const estMs = Math.max(2500, Math.min(120000, Math.floor((chars / cps) * 1000)));
     const createdAt = Date.now();
     JOBS.set(jobId, {
       createdAt,
@@ -78,11 +79,13 @@ module.exports = async function handler(req, res) {
       cleanupTimer.unref();
     }
 
+    const estimatedSeconds = Math.ceil(estMs / 1000);
     res.status(202).json({
       status: "queued",
       job_id: jobId,
       poll_url: `/api/process?job_id=${encodeURIComponent(jobId)}`,
-      estimated_seconds: Math.ceil(estMs / 1000),
+      estimated_seconds: estimatedSeconds,
+      suggested_poll_interval_ms: Math.min(3000, Math.max(800, Math.floor(estMs / 40))),
       note: "Demo async job accepted. Check poll_url for progress.",
     });
     return;

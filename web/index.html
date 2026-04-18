@@ -69,6 +69,12 @@
       </section>
 
       <section class="card">
+        <label for="browser-voice"><strong>Browser preview voice</strong></label>
+        <select id="browser-voice" style="width: 100%; margin-top: 8px; min-height: 44px; border-radius: 10px; padding: 8px; background: rgba(15, 23, 42, 0.9); color: #e2e8f0; border: 1px solid rgba(148, 163, 184, 0.3);"></select>
+        <p style="margin: 8px 0 0; font-size: 12px; opacity: 0.85;">Uses your device's offline voices. The Python app uses Edge or Kokoro for final quality.</p>
+      </section>
+
+      <section class="card">
         <div class="grid">
           <button id="demo-generate" class="primary">Generate 5-minute demo</button>
           <button id="demo-speak" class="secondary">Play in browser voice</button>
@@ -95,6 +101,7 @@
       const output = document.getElementById("output");
       const stats = document.getElementById("stats");
       const generateBtn = document.getElementById("demo-generate");
+      const voiceSelect = document.getElementById("browser-voice");
       let currentDemo = null;
       let isGenerating = false;
       const generateLabelIdle = "Generate 5-minute demo";
@@ -119,6 +126,38 @@
       input.value = loadDraft() || "";
       updateStats();
       input.addEventListener("input", updateStats);
+
+      const fillVoiceList = () => {
+        if (!("speechSynthesis" in window)) {
+          voiceSelect.innerHTML = "";
+          const opt = document.createElement("option");
+          opt.value = "";
+          opt.textContent = "Speech synthesis not available";
+          voiceSelect.appendChild(opt);
+          voiceSelect.disabled = true;
+          return;
+        }
+        const voices = window.speechSynthesis.getVoices() || [];
+        const preferred = voices.filter((v) => /en[-_]/.test(v.lang || ""));
+        const list = preferred.length ? preferred : voices;
+        voiceSelect.innerHTML = "";
+        list.forEach((v) => {
+          const opt = document.createElement("option");
+          opt.value = v.voiceURI || v.name;
+          opt.textContent = `${v.name} (${v.lang || "?"})`;
+          opt.dataset.name = v.name;
+          opt.dataset.lang = v.lang || "";
+          voiceSelect.appendChild(opt);
+        });
+        if (!voiceSelect.options.length) {
+          const opt = document.createElement("option");
+          opt.value = "";
+          opt.textContent = "Loading voices…";
+          voiceSelect.appendChild(opt);
+        }
+      };
+      fillVoiceList();
+      window.speechSynthesis.onvoiceschanged = fillVoiceList;
 
       fileInput.addEventListener("change", async () => {
         const file = fileInput.files && fileInput.files[0];
@@ -158,10 +197,19 @@
             return;
           }
           const jobId = start.data.job_id;
-          setStatus(`Cloud demo job queued (${jobId}). Polling progress...`);
+          const intervalMs = Math.min(
+            4000,
+            Math.max(700, Number(start.data.suggested_poll_interval_ms) || 1000),
+          );
+          const estSec = Math.max(5, Number(start.data.estimated_seconds) || 30);
+          const maxAttempts = Math.min(
+            200,
+            Math.max(30, Math.ceil((estSec * 2.2) / (intervalMs / 1000)) + 8),
+          );
+          setStatus(`Cloud demo job queued (${jobId}). Polling (~${Math.round(intervalMs / 100) / 10}s)…`);
           let completed = false;
-          for (let attempt = 0; attempt < 24; attempt += 1) {
-            await new Promise((resolve) => setTimeout(resolve, 1000));
+          for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, intervalMs));
             const polled = await pollCloudProcess(jobId);
             if (!polled.ok || !polled.data) {
               continue;
@@ -193,6 +241,15 @@
         }
         const utterance = new SpeechSynthesisUtterance(currentDemo.previewText);
         utterance.rate = 1.0;
+        const voices = window.speechSynthesis.getVoices() || [];
+        const sel = voiceSelect.selectedOptions && voiceSelect.selectedOptions[0];
+        const uri = sel && sel.value;
+        if (uri) {
+          const match = voices.find((v) => (v.voiceURI || v.name) === uri);
+          if (match) {
+            utterance.voice = match;
+          }
+        }
         utterance.onstart = () => setStatus("Playing browser voice preview...");
         utterance.onend = () => setStatus("Playback finished.");
         window.speechSynthesis.cancel();

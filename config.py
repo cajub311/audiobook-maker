@@ -67,7 +67,12 @@ VOICE_BROWSER_PAGE_SIZE = _env_int("ABM_VOICE_BROWSER_PAGE_SIZE", 12, minimum=1)
 CACHE_SLIDER_MIN_MB = _env_int("ABM_CACHE_SLIDER_MIN_MB", 128, minimum=64)
 CACHE_SLIDER_MAX_MB = _env_int("ABM_CACHE_SLIDER_MAX_MB", 4096, minimum=128)
 CACHE_SLIDER_STEP_MB = _env_int("ABM_CACHE_SLIDER_STEP_MB", 64, minimum=1)
-DEFAULT_TTS_MIN_REQUEST_INTERVAL_S = _env_float("ABM_TTS_MIN_REQUEST_INTERVAL_S", 0.15, minimum=0.0)
+# Edge TTS: global lock + tiny interval serialized all workers; token bucket allows bursts.
+DEFAULT_TTS_MIN_REQUEST_INTERVAL_S = _env_float("ABM_TTS_MIN_REQUEST_INTERVAL_S", 0.08, minimum=0.0)
+DEFAULT_TTS_RATE_LIMIT_BURST = _env_int("ABM_TTS_RATE_LIMIT_BURST", 8, minimum=1)
 DEFAULT_DIALOGUE_STRATEGY = _env_str("ABM_DIALOGUE_STRATEGY", "auto")
+# Edge neural defaults (clearer than legacy Guy/Jenny for long-form narration).
+DEFAULT_NARRATOR_VOICE = _env_str("ABM_DEFAULT_NARRATOR_VOICE", "en-US-AndrewNeural")
+DEFAULT_DIALOGUE_VOICE = _env_str("ABM_DEFAULT_DIALOGUE_VOICE", "en-US-AriaNeural")
 
 USER_AGENT = _env_str("ABM_USER_AGENT", "AudiobookCreatorV7/1.0 (+mobile-safe-fetch)")

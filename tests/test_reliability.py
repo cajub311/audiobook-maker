@@ -4,9 +4,11 @@ from pathlib import Path
 import wave
 import contextlib
 import asyncio
+import time
 from unittest.mock import patch
 
 from audiobook_creator_v7 import (
+    AsyncRateLimiter,
     AudioCache,
     build_atempo_filter,
     choose_resume_project_id,
@@ -107,6 +109,24 @@ class ReliabilityTests(unittest.TestCase):
             with patch("audiobook_creator_v7.MAX_UPLOAD_FILE_BYTES", 10):
                 with self.assertRaises(ValueError):
                     validate_local_input_file(fake_pdf)
+
+    def test_epub_size_validation_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_epub = Path(tmp) / "book.epub"
+            fake_epub.write_bytes(b"x" * 50)
+            with patch("audiobook_creator_v7.MAX_UPLOAD_FILE_BYTES", 10):
+                with self.assertRaises(ValueError):
+                    validate_local_input_file(fake_epub)
+
+    def test_async_rate_limiter_burst_parallelism(self):
+        async def _run() -> float:
+            limiter = AsyncRateLimiter(1.0, burst=2)
+            t0 = time.monotonic()
+            await asyncio.gather(limiter.wait_turn(), limiter.wait_turn())
+            return time.monotonic() - t0
+
+        elapsed = asyncio.run(_run())
+        self.assertLess(elapsed, 0.35)
 
     def test_dialogue_detection_regex_path(self):
         text = '"Hello there," Alice said.\n\n"Hi," Bob said.'

@@ -187,12 +187,12 @@ def extract_chapters_from_pdf(pdf_path: str) -> tuple[list[dict[str, str]], dict
 def validate_local_input_file(path: Path, max_upload_file_bytes: int = MAX_UPLOAD_FILE_BYTES) -> None:
     if not path.exists() or not path.is_file():
         raise ValueError("Uploaded file could not be found. Please upload it again.")
-    if path.suffix.lower() == ".pdf":
-        size_bytes = int(path.stat().st_size)
-        if size_bytes > max_upload_file_bytes:
-            max_mb = max_upload_file_bytes // (1024 * 1024)
-            size_mb = size_bytes / (1024 * 1024)
-            raise ValueError(f"PDF file is too large ({size_mb:.1f} MB). Maximum allowed is {max_mb} MB.")
+    size_bytes = int(path.stat().st_size)
+    if size_bytes > max_upload_file_bytes:
+        max_mb = max_upload_file_bytes // (1024 * 1024)
+        size_mb = size_bytes / (1024 * 1024)
+        label = path.suffix.upper().lstrip(".") or "FILE"
+        raise ValueError(f"{label} file is too large ({size_mb:.1f} MB). Maximum allowed is {max_mb} MB.")
 
 
 def extract_source_chapters(
