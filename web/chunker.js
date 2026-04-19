@@ -7,6 +7,19 @@
 const DEFAULT_MAX_CHARS = 2200;
 const HARD_MAX = 7800; // server side is 8000
 
+// Abbreviations whose trailing dot must not be treated as a sentence boundary.
+const ABBREV_RE = /\b(Mr|Mrs|Ms|Dr|Prof|Sgt|Cpl|Lt|Capt|Gen|Col|Brig|Rev|Hon|St|Sr|Jr|vs|etc|viz|approx|dept|e\.g|i\.e|et al|Vol|No|pp|fig|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\./gi;
+// U+2060 WORD JOINER — invisible, ignored by TTS, safe as a sentinel
+const SENT_GUARD = "\u2060";
+
+function protectAbbrevs(text) {
+  return text.replace(ABBREV_RE, (m) => m.slice(0, -1) + SENT_GUARD);
+}
+
+function restoreAbbrevs(text) {
+  return text.split(SENT_GUARD).join(".");
+}
+
 export function chunkText(rawText, maxChars = DEFAULT_MAX_CHARS) {
   const text = String(rawText || "").replace(/\r\n?/g, "\n").trim();
   if (!text) return [];
@@ -54,10 +67,12 @@ export function chunkText(rawText, maxChars = DEFAULT_MAX_CHARS) {
     // Paragraph break as natural breath point.
     if (buffer && buffer.length + paragraph.length + 1 > limit) flush();
 
-    // Split into sentences on . ! ? followed by whitespace, keeping punctuation.
-    const sentences = paragraph.match(/[^.!?]+[.!?]+(?:['")\]\u2019\u201D]+)?|\S[^.!?]*$/g) || [paragraph];
+    // Protect abbreviations so their dots don't look like sentence endings,
+    // then split on . ! ? followed by whitespace, then restore.
+    const guarded = protectAbbrevs(paragraph);
+    const sentences = guarded.match(/[^.!?]+[.!?]+(?:['")\]\u2019\u201D]+)?|\S[^.!?]*$/g) || [guarded];
     for (const sentence of sentences) {
-      addSentence(sentence.trim());
+      addSentence(restoreAbbrevs(sentence.trim()));
     }
     // Force a paragraph break between paragraphs for clearer audio pacing.
     if (buffer && buffer.length > Math.floor(limit * 0.65)) flush();

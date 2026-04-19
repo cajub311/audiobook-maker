@@ -12,8 +12,7 @@ export function saveDraft(text) {
 export function loadDraft() {
   try {
     return localStorage.getItem(DRAFT_KEY) || "";
-  } catch (err) {
-    console.error("Failed to load demo draft from localStorage:", err);
-    return null;
+  } catch (_err) {
+    return "";
   }
 }

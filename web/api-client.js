@@ -13,7 +13,7 @@ const DEFAULT_FALLBACK_VOICES = [
 
 export async function fetchVoices() {
   try {
-    const res = await fetch("/api/voices", { cache: "force-cache" });
+    const res = await fetch("/api/voices", { cache: "default" });
     if (!res.ok) throw new Error(`voices endpoint ${res.status}`);
     const data = await res.json();
     if (!data || !Array.isArray(data.voices) || data.voices.length === 0) {

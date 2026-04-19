@@ -65,7 +65,7 @@ export async function makeAudiobook({
 
   let cursor = 0;
   const workers = new Array(Math.min(limit, chunks.length)).fill(0).map(async () => {
-    while (!failure) {
+    while (!failure && !signal?.aborted) {
       const index = cursor++;
       if (index >= chunks.length) return;
       const item = itemsResolved[index];
@@ -100,6 +100,8 @@ export async function makeAudiobook({
   if (failure) throw failure;
 
   stats.durationMs = Math.round(performance.now() - start);
-  const blob = new Blob(parts, { type: "audio/mpeg" });
+  // Filter out any unfilled slots (cancelled or skipped chunks) so the
+  // Blob constructor never receives undefined, which would stringify to "undefined".
+  const blob = new Blob(parts.filter(Boolean), { type: "audio/mpeg" });
   return { blob, chunks, stats };
 }
