@@ -1,4 +1,4 @@
-const CACHE_NAME = "audiobook-web-v7";
+const CACHE_NAME = "audiobook-web-v8";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -8,8 +8,8 @@ const APP_SHELL = [
   "/web/audiobook-maker.js",
   "/web/chunker.js",
   "/web/parsers.js",
-  "/web/processor.js",
   "/web/storage.js",
+  "/web/text.js",
   "/manifest.webmanifest",
   "/icon.svg",
   "/assets/gradio-ui-preview.svg",

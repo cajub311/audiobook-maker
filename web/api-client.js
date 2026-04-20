@@ -30,31 +30,67 @@ export async function fetchVoices() {
   }
 }
 
+// Wait ms milliseconds, aborting early if signal fires.
+async function sleep(ms, signal) {
+  await new Promise((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(t);
+      reject(new DOMException("Aborted", "AbortError"));
+    }, { once: true });
+  });
+}
+
 export async function synthesizeChunk(chunkText, { voice, rate = 0, pitch = 0, format = "mp3", signal } = {}) {
   const body = JSON.stringify({ text: chunkText, voice, rate, pitch, format });
-  const res = await fetch("/api/tts", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body,
-    signal,
-  });
-  if (!res.ok) {
-    let detail = "";
+  const MAX_ATTEMPTS = 4; // 1 initial + 3 retries
+  let lastErr;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+
+    // Exponential backoff before each retry: 1 s, 2 s, 4 s
+    if (attempt > 0) await sleep(1000 * (2 ** (attempt - 1)), signal);
+
     try {
-      const data = await res.json();
-      detail = data && data.message ? data.message : JSON.stringify(data);
-    } catch (_err) {
-      detail = res.statusText;
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        signal,
+      });
+
+      // 4xx errors (except 429 rate-limit) are the caller's fault — don't retry.
+      if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+        let detail = res.statusText;
+        try { const d = await res.json(); detail = d.message || JSON.stringify(d); } catch (_) {}
+        const err = new Error(`TTS /api/tts ${res.status}: ${detail}`);
+        err.status = res.status;
+        throw err;
+      }
+
+      if (!res.ok) {
+        // 429 or 5xx — retryable
+        let detail = res.statusText;
+        try { const d = await res.json(); detail = d.message || JSON.stringify(d); } catch (_) {}
+        lastErr = Object.assign(new Error(`TTS /api/tts ${res.status}: ${detail}`), { status: res.status });
+        continue;
+      }
+
+      const blob = await res.blob();
+      if (!blob || blob.size === 0) throw new Error("TTS returned empty audio");
+      return blob;
+
+    } catch (err) {
+      if (err.name === "AbortError") throw err;
+      // Non-retryable HTTP error — propagate immediately
+      if (err.status && err.status >= 400 && err.status < 500 && err.status !== 429) throw err;
+      // Network error or retryable — store and loop
+      lastErr = err;
     }
-    const error = new Error(`TTS /api/tts ${res.status}: ${detail}`);
-    error.status = res.status;
-    throw error;
   }
-  const blob = await res.blob();
-  if (!blob || blob.size === 0) {
-    throw new Error("TTS returned empty audio");
-  }
-  return blob;
+
+  throw lastErr || new Error("TTS synthesis failed after retries");
 }
 
 // Legacy stubs kept so the demo can still fall back to the old
