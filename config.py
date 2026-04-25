@@ -23,6 +23,13 @@ def _env_str(name: str, default: str) -> str:
     return value if value is not None and value != "" else default
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _env_float(name: str, default: float, *, minimum: float | None = None) -> float:
     raw = os.getenv(name)
     if raw is None:
@@ -47,6 +54,7 @@ PRONUNCIATIONS_DIR = BASE_DIR / _env_str("ABM_PRONUNCIATIONS_DIRNAME", "pronunci
 TEMP_DIR = BASE_DIR / _env_str("ABM_TEMP_DIRNAME", "temp")
 OUTPUT_DIR = BASE_DIR / _env_str("ABM_OUTPUT_DIRNAME", "output")
 BOOK_PROFILES_DIR = PRONUNCIATIONS_DIR / _env_str("ABM_BOOK_PROFILES_DIRNAME", "book_profiles")
+MODELS_DIR = BASE_DIR / _env_str("ABM_MODELS_DIRNAME", "models")
 SAVED_INPUTS_DIR = BASE_DIR / _env_str("ABM_SAVED_INPUTS_DIRNAME", "saved_inputs")
 UI_DRAFT_PATH = BASE_DIR / _env_str("ABM_UI_DRAFT_FILENAME", "ui_draft.json")
 APP_STATE_PATH = BASE_DIR / _env_str("ABM_APP_STATE_FILENAME", "app_state.json")
@@ -71,3 +79,8 @@ DEFAULT_TTS_MIN_REQUEST_INTERVAL_S = _env_float("ABM_TTS_MIN_REQUEST_INTERVAL_S"
 DEFAULT_DIALOGUE_STRATEGY = _env_str("ABM_DIALOGUE_STRATEGY", "auto")
 
 USER_AGENT = _env_str("ABM_USER_AGENT", "AudiobookCreatorV7/1.0 (+mobile-safe-fetch)")
+
+# Gradio desktop UI (audiobook_creator_v7.py). Set ABM_GRADIO_NO_AUTH=1 for local dev only.
+GRADIO_AUTH_USER = _env_str("GRADIO_AUTH_USER", "admin")
+GRADIO_AUTH_PASSWORD = _env_str("GRADIO_AUTH_PASSWORD", "audiobook2024")
+GRADIO_NO_AUTH = _env_bool("ABM_GRADIO_NO_AUTH", False)

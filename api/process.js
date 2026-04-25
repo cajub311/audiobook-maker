@@ -1,6 +1,8 @@
 const JOBS = global.__abm_process_jobs || new Map();
 global.__abm_process_jobs = JOBS;
 const JOB_TTL_AFTER_COMPLETE_MS = 5 * 60 * 1000;
+/** Demo jobs only; keeps a single serverless instance from holding megabytes of text in RAM. */
+const MAX_DEMO_TEXT_CHARS = 400_000;
 
 function safeBody(req) {
   if (!req || req.body == null) return {};
@@ -56,6 +58,13 @@ module.exports = async function handler(req, res) {
     const demoMode = Boolean(body.demoMode);
     if (!text.trim()) {
       res.status(400).json({ status: "error", message: "Provide non-empty text in request body." });
+      return;
+    }
+    if (text.length > MAX_DEMO_TEXT_CHARS) {
+      res.status(413).json({
+        status: "error",
+        message: `Demo job text is too long (max ${MAX_DEMO_TEXT_CHARS.toLocaleString()} characters). Use the main audiobook maker for large books.`,
+      });
       return;
     }
 
