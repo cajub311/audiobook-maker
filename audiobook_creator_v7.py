@@ -52,6 +52,9 @@ from config import (
     DEFAULT_SEGMENT_CHUNK_CHARS,
     DEFAULT_TTS_MIN_REQUEST_INTERVAL_S,
     DEFAULT_URL_FETCH_TIMEOUT_S,
+    GRADIO_AUTH_PASSWORD,
+    GRADIO_AUTH_USER,
+    GRADIO_NO_AUTH,
     LOW_MEMORY_QUEUE_SIZE,
     MANIFESTS_DIR,
     MAX_CLOUD_MANIFEST_BYTES,
@@ -3771,14 +3774,16 @@ def main() -> None:
     share_flag = str(os.environ.get("GRADIO_SHARE", "0")).lower() in {"1", "true", "yes"}
     root_path = os.environ.get("GRADIO_ROOT_PATH", "")
     server_port = int(os.environ.get("GRADIO_SERVER_PORT", "7860"))
-    app.launch(
-        server_name="0.0.0.0",
-        server_port=server_port,
-        root_path=root_path,
-        show_api=False,
-        share=False,
-        auth=("admin", "audiobook2024"),
-    )
+    launch_kwargs: dict[str, Any] = {
+        "server_name": "0.0.0.0",
+        "server_port": server_port,
+        "root_path": root_path,
+        "show_api": False,
+        "share": share_flag,
+    }
+    if not GRADIO_NO_AUTH:
+        launch_kwargs["auth"] = (GRADIO_AUTH_USER, GRADIO_AUTH_PASSWORD)
+    app.launch(**launch_kwargs)
 
 
 if __name__ == "__main__":

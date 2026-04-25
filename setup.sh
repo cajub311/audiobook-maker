@@ -1,45 +1,67 @@
 #!/usr/bin/env bash
-# Audiobook Creator V7 - One-click setup
-# All free, no API keys needed.
-set -e
+# Audiobook Creator V7 — environment setup (Python deps + optional FFmpeg).
+# All TTS engines in this project are free; no API keys required for the defaults.
+set -euo pipefail
 
-echo "=== Audiobook Creator V7 Setup ==="
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
+
+PYTHON="${PYTHON:-python3}"
+
+echo "=== Audiobook Creator V7 setup ==="
 echo ""
 
-# Check Python
-if ! command -v python3 &>/dev/null; then
-    echo "ERROR: Python 3 is required. Install it first."
-    exit 1
+if ! command -v "$PYTHON" &>/dev/null; then
+  echo "ERROR: $PYTHON not found. Install Python 3.10+ or set PYTHON= to your interpreter."
+  exit 1
 fi
-echo "[OK] Python 3 found: $(python3 --version)"
+echo "[OK] Python: $($PYTHON --version)"
 
-# Check FFmpeg
-if command -v ffmpeg &>/dev/null && command -v ffprobe &>/dev/null; then
-    echo "[OK] FFmpeg found"
+have_ffmpeg() {
+  command -v ffmpeg &>/dev/null && command -v ffprobe &>/dev/null
+}
+
+if have_ffmpeg; then
+  echo "[OK] FFmpeg and ffprobe found"
 else
-    echo "[!!] FFmpeg not found. Attempting install..."
+  echo "[!!] FFmpeg not found (needed for MP3/M4B assembly)."
+  if [[ "$(id -u)" -eq 0 ]]; then
     if command -v apt-get &>/dev/null; then
-        sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
-    elif command -v brew &>/dev/null; then
-        brew install ffmpeg
+      apt-get update -qq && apt-get install -y -qq ffmpeg
     elif command -v dnf &>/dev/null; then
-        sudo dnf install -y ffmpeg
+      dnf install -y ffmpeg
     elif command -v pacman &>/dev/null; then
-        sudo pacman -S --noconfirm ffmpeg
+      pacman -S --noconfirm ffmpeg
     else
-        echo "Please install FFmpeg manually: https://ffmpeg.org/download.html"
+      echo "Install FFmpeg from your OS packages or https://ffmpeg.org/download.html"
+      exit 1
     fi
+  elif command -v sudo &>/dev/null && command -v apt-get &>/dev/null; then
+    echo "Attempting: sudo apt-get install -y ffmpeg"
+    sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+  elif command -v brew &>/dev/null; then
+    echo "Attempting: brew install ffmpeg"
+    brew install ffmpeg
+  else
+    echo "Install FFmpeg manually, then re-run this script."
+    echo "  Debian/Ubuntu: sudo apt-get install -y ffmpeg"
+    echo "  macOS:         brew install ffmpeg"
+    exit 1
+  fi
+  if ! have_ffmpeg; then
+    echo "ERROR: FFmpeg still not available after install attempt."
+    exit 1
+  fi
+  echo "[OK] FFmpeg installed"
 fi
 
-# Install Python dependencies
 echo ""
-echo "Installing Python packages (all free)..."
-pip install -q -r requirements.txt
+echo "Installing Python packages from requirements.txt ..."
+"$PYTHON" -m pip install -q -r requirements.txt
 
-# Verify engines
 echo ""
 echo "Checking TTS engines..."
-python3 -c "
+"$PYTHON" -c "
 from tts.engines import engine_availability, auto_select_engine
 avail = engine_availability()
 for name, info in avail.items():
@@ -49,16 +71,15 @@ for name, info in avail.items():
         print(f'    Fix: {info[\"fix\"]}')
 print(f'  Auto-selected engine: {auto_select_engine()}')
 print()
-print('All engines are FREE - no API keys or accounts needed!')
+print('Engines above use free/local or no-account defaults where applicable.')
 "
 
 echo ""
-echo "=== Setup complete! ==="
+echo "=== Setup complete ==="
+echo "Start the Gradio app:"
+echo "  $PYTHON audiobook_creator_v7.py"
 echo ""
-echo "Start the app:"
-echo "  python3 audiobook_creator_v7.py"
+echo "Then open http://localhost:${GRADIO_SERVER_PORT:-7860}"
+echo "Login defaults: GRADIO_AUTH_USER / GRADIO_AUTH_PASSWORD (see README)."
+echo "Local dev without login: ABM_GRADIO_NO_AUTH=1 $PYTHON audiobook_creator_v7.py"
 echo ""
-echo "Then open: http://localhost:7860"
-echo "Login: admin / audiobook2024"
-echo ""
-echo "Everything is free. No API keys needed."

@@ -285,6 +285,14 @@
         errorPanel.textContent = message;
       };
 
+      /** @param {string} text */
+      const saveDraftSafely = (text) => {
+        const draft = saveDraft(text);
+        if (draft && !draft.ok) {
+          setError("Could not save draft locally: " + (draft.error || "storage may be full or blocked"));
+        }
+      };
+
       const formatMmSs = (seconds) => {
         const s = Math.max(0, Math.round(Number(seconds) || 0));
         return `${Math.floor(s / 60)}m ${s % 60}s`;
@@ -379,8 +387,8 @@
             "abm-voice-map",
             JSON.stringify({ dialogue: state.dialogueVoice, speakers: state.speakerVoices, enabled: multiVoiceToggle.checked }),
           );
-        } catch (_err) {
-          // localStorage may be disabled in private windows
+        } catch (err) {
+          setError("Could not save voice settings: " + (err instanceof Error ? err.message : String(err)));
         }
       };
 
@@ -443,10 +451,7 @@
       };
       textInput.addEventListener("input", () => {
         updateStats();
-        const draft = saveDraft(textInput.value);
-        if (draft && !draft.ok) {
-          setError("Could not autosave draft: " + (draft.error || "storage quota may be full"));
-        }
+        saveDraftSafely(textInput.value);
         scheduleDetect();
       });
       rateInput.addEventListener("input", updateRateDisplay);
@@ -474,10 +479,7 @@
           });
           textInput.value = result.text;
           updateStats();
-          const draft = saveDraft(result.text);
-          if (draft && !draft.ok) {
-            setError("Could not save draft after upload: " + (draft.error || "storage quota may be full"));
-          }
+          saveDraftSafely(result.text);
           detectFromText();
           const bits = [`Loaded <strong>${file.name}</strong>`];
           if (result.kind && result.kind !== "txt") bits.push(`parsed as ${result.kind.toUpperCase()}`);
@@ -495,6 +497,7 @@
       });
 
       btnSample.addEventListener("click", () => {
+        setError(null);
         textInput.value = `Chapter One — The Opening\n\n`
           + `It was the best of times, it was the worst of times. A long road stretched ahead `
           + `of the travelers, and the wind whispered old stories through the pines. `
@@ -503,19 +506,15 @@
           + `The Audiobook Maker turns any text into spoken audio using neural voices. `
           + `Try different voices, adjust the speed, and download your audiobook as an MP3.`;
         updateStats();
-        const draft = saveDraft(textInput.value);
-        if (draft && !draft.ok) {
-          setError("Could not save draft: " + (draft.error || "storage quota may be full"));
-        }
+        saveDraftSafely(textInput.value);
         detectFromText();
         setStatus("Loaded sample text. Press <strong>Create audiobook</strong>.");
-        setError(null);
       });
 
       btnClear.addEventListener("click", () => {
         textInput.value = "";
         updateStats();
-        saveDraft("");
+        saveDraftSafely("");
         setStatus("Cleared.");
         setError(null);
         outputCard.hidden = true;

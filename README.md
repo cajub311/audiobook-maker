@@ -55,10 +55,13 @@ The included tests exercise the TTS handler's validation and run against `/api/t
 
 ```bash
 pip install -r requirements.txt
+# optional: ./setup.sh   # same deps + checks FFmpeg and TTS engines
 python audiobook_creator_v7.py
 ```
 
-Open http://localhost:7860 (default login `admin / audiobook2024`).
+Open http://localhost:7860. The Gradio UI is password-protected by default. Set **`GRADIO_AUTH_USER`** and **`GRADIO_AUTH_PASSWORD`** before launch to pick your own credentials (defaults remain `admin` / `audiobook2024`). For **local development only**, you can disable login with **`ABM_GRADIO_NO_AUTH=1`** — do not expose that mode to the public internet.
+
+Public link sharing still uses **`GRADIO_SHARE=1`** (unchanged).
 
 Features: multi-voice dialogue, M4B with chapter markers, pronunciation dictionary, PDF/EPUB/URL ingest, resume-safe caching.
 
