@@ -6,12 +6,14 @@ const assert = require("node:assert/strict");
 let splitChapters;
 let splitIntoChunks;
 let detectSpeakers;
+let extractCastOrdered;
 
 test.before(async () => {
   const mod = await import("../../web/text.js");
   splitChapters = mod.splitChapters;
   splitIntoChunks = mod.splitIntoChunks;
   detectSpeakers = mod.detectSpeakers;
+  extractCastOrdered = mod.extractCastOrdered;
 });
 
 test("splitChapters detects Chapter headings", () => {
@@ -79,4 +81,39 @@ test("unattributed alternating quotes get Speaker A and B", () => {
   const names = new Set(speakers.map((s) => s.name));
   assert.ok(names.has("Speaker A"));
   assert.ok(names.has("Speaker B"));
+});
+
+test("extractCastOrdered picks Mark Thompson then Sarah from italics + speech", () => {
+  const text = `Mark Thompson had stopped.
+
+But tonight: *Sarah calling.*
+
+"Mark?"
+
+"I'm still here," she said. "In the dark."`;
+  const cast = extractCastOrdered(text);
+  assert.ok(cast.includes("Mark Thompson") || cast.includes("Mark"));
+  assert.ok(cast.some((n) => String(n).includes("Sarah")));
+});
+
+test("chained quote after she said attributes to same speaker (Sarah)", () => {
+  const text = `Sarah waited by the door.
+
+"I'm still here," she said. "In the dark."`;
+  const chunks = splitIntoChunks(splitChapters(text));
+  const lines = chunks.filter((c) => c.isDialogue).map((c) => ({ t: c.text, sp: c.speaker }));
+  assert.equal(lines[0].sp, "Sarah");
+  assert.equal(lines[1].sp, "Sarah");
+});
+
+test("Name-only question addressee: Mark? spoken by other cast member", () => {
+  const text = `Mark Thompson walked in.
+
+Sarah frowned.
+
+"Mark?"`;
+  const chunks = splitIntoChunks(splitChapters(text));
+  const markQ = chunks.find((c) => c.isDialogue && c.text.includes("Mark"));
+  assert.ok(markQ);
+  assert.equal(markQ.speaker, "Sarah");
 });

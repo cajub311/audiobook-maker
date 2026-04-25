@@ -16,7 +16,7 @@ Open `/web/index.html` after deploying, paste text, pick a voice, press **Create
 - Chunks render **in parallel** (configurable, default 4) for fast generation.
 - Voice preview, reading speed, pitch control.
 - Saves your draft locally and restores it on reload.
-- **Multi-voice**: detects `Name said` / `said Name`, `Name:` before a quote, `— Name` after a quote, and strips stray `Alice said.` lines between quotes so the next line is not mis-labeled. Unattributed back-and-forth quotes use **Speaker A / Speaker B** with different voices picked automatically.
+- **Multi-voice**: builds a **cast list** from the whole book (speech tags, `*Name*`, `First Last` + narration verbs, `Name walked` / `Sarah frowned`, etc.), resolves **`she` / `he` / `they` + said** before and after quotes, chains **`"…" she said. "More"`** to the same speaker, treats **`"Mark?"`** as the other character when the cast is known, and uses **Speaker A / B** only when still unknown. Fixes a bug where case-insensitive regex stripped **`she said`** as if it were a capitalized name.
 - Works as a PWA (installable, offline-friendly shell).
 
 ### API routes
