@@ -57,6 +57,8 @@ const SPEAKER_VERBS = [
   "added", "continued", "declared", "demanded", "insisted", "responded", "hissed",
   "stammered", "snapped", "growled", "barked", "groaned", "mumbled", "chuckled",
   "noted", "remarked", "scoffed", "interrupted", "began", "confessed",
+  "offered", "pleaded", "warned", "urged", "teased", "scolded", "pressed", "prodded",
+  "shot back", "called out", "spoke up", "went on", "went on to say", "repeated",
 ];
 const SPEAKER_VERB_SRC = SPEAKER_VERBS.join("|");
 const NAME_SRC = "[A-Z][a-zA-Z'\\-]{1,24}(?:\\s+[A-Z][a-zA-Z'\\-]{1,24})?";
@@ -69,7 +71,7 @@ const PRONOUN_BLOCKLIST = new Set([
   "Everyone", "Nobody", "The", "A", "An", "Then", "But", "And", "So", "Yet",
   "Now", "Here", "There", "This", "That", "These", "Those", "Mr", "Mrs", "Ms",
   "Dr", "Sir", "Madam", "Voice", "Man", "Woman", "Boy", "Girl", "Child", "Both",
-  "Either", "Neither", "None",
+  "Either", "Neither", "None", "Something", "Somewhere",
 ]);
 
 function cleanSpeakerName(raw) {
@@ -81,8 +83,72 @@ function cleanSpeakerName(raw) {
   return trimmed;
 }
 
+const CONTEXT_CHARS = 140;
+
+/** "Sarah:" or "Mary Ann:" immediately before an opening quote */
+function detectColonSpeakerBefore(beforeRaw) {
+  const before = String(beforeRaw || "").replace(/\s+$/, "");
+  const m = before.match(
+    /(?:^|[.!?\n\u2026])\s*([A-Z][a-zA-Z'’\-]{1,24}(?:\s+[A-Z][a-zA-Z'’\-]{1,24})?)\s*:\s*$/,
+  );
+  if (!m) return null;
+  return cleanSpeakerName(m[1]);
+}
+
+/** "…" — Sarah / - Sarah / (Sarah) right after the closing quote */
+function detectTailSpeakerAfter(afterRaw) {
+  const after = String(afterRaw || "");
+  /** "Bob answered." / "Mary whispered" right after the closing quote */
+  const nameVerb = after.match(
+    new RegExp(`^\\s*(${NAME_SRC})\\s+(?:${SPEAKER_VERB_SRC})\\b`),
+  );
+  if (nameVerb) {
+    const n = cleanSpeakerName(nameVerb[1]);
+    if (n) return n;
+  }
+  const dash = after.match(
+    /^\s*[—–\-]\s*([A-Z][a-zA-Z'’\-]{1,24}(?:\s+[A-Z][a-zA-Z'’\-]{1,24})?)\b/,
+  );
+  if (dash) {
+    const n = cleanSpeakerName(dash[1]);
+    if (n) return n;
+  }
+  const paren = after.match(
+    /^\s*\(\s*([A-Z][a-zA-Z'’\-]{1,24}(?:\s+[A-Z][a-zA-Z'’\-]{1,24})?)\s*\)/,
+  );
+  if (paren) {
+    const n = cleanSpeakerName(paren[1]);
+    if (n) return n;
+  }
+  return null;
+}
+
+/** Name alone on the line before the paragraph continues into a quote */
+function detectNameLineBeforeQuote(beforeRaw) {
+  const before = String(beforeRaw || "").replace(/\s+$/, "");
+  const m = before.match(/\n\s*([A-Z][a-zA-Z'’\-]{1,24}(?:\s+[A-Z][a-zA-Z'’\-]{1,24})?)\s*$/);
+  if (!m) return null;
+  return cleanSpeakerName(m[1]);
+}
+
+/** Strip trailing " Alice said." so the next quote is not attributed to the previous speaker. */
+function stripTrailingSpeechAttribution(beforeRaw) {
+  let s = String(beforeRaw || "");
+  const tailRe = new RegExp(
+    `\\s+(${NAME_SRC})\\s+(?:${SPEAKER_VERB_SRC})[.!?…]?\\s*$`,
+    "i",
+  );
+  for (let i = 0; i < 6; i += 1) {
+    const m = s.match(tailRe);
+    if (!m) break;
+    s = s.slice(0, -m[0].length);
+  }
+  return s;
+}
+
 function detectSpeakerFromContext(before, after) {
-  const scope = `${before || ""} ${after || ""}`;
+  const beforeSt = stripTrailingSpeechAttribution(before);
+  const scope = `${beforeSt} ${after || ""}`;
   const before_ = scope.match(BEFORE_REGEX);
   if (before_) {
     const name = cleanSpeakerName(before_[1]);
@@ -93,6 +159,12 @@ function detectSpeakerFromContext(before, after) {
     const name = cleanSpeakerName(after_[1]);
     if (name) return name;
   }
+  const colon = detectColonSpeakerBefore(beforeSt);
+  if (colon) return colon;
+  const tail = detectTailSpeakerAfter(after);
+  if (tail) return tail;
+  const lineName = detectNameLineBeforeQuote(beforeSt);
+  if (lineName) return lineName;
   return null;
 }
 
@@ -109,19 +181,26 @@ function chunkParagraph(paragraph, chapterIndex, seedIdx) {
   const out = [];
   let cursor = 0;
   let idx = seedIdx;
+  let unattributedDialogueTurn = 0;
   DIALOGUE_REGEX.lastIndex = 0;
   let m;
   while ((m = DIALOGUE_REGEX.exec(text)) !== null) {
     const pre = text.slice(cursor, m.index).trim();
     if (pre) {
       for (const s of splitSentences(pre)) {
+        if (isStandaloneSpeechAttribution(s)) continue;
         out.push({ index: idx++, chapterIndex, text: s, isDialogue: false, speaker: null });
       }
     }
     const quote = (m[1] || m[2] || m[3] || "").trim();
-    const before = text.slice(Math.max(0, m.index - 80), m.index);
-    const after = text.slice(m.index + m[0].length, m.index + m[0].length + 80);
-    const speaker = detectSpeakerFromContext(before, after);
+    const before = text.slice(Math.max(0, m.index - CONTEXT_CHARS), m.index);
+    const after = text.slice(m.index + m[0].length, m.index + m[0].length + CONTEXT_CHARS);
+    let speaker = detectSpeakerFromContext(before, after);
+    if (!speaker && quote) {
+      // Back-and-forth with no "X said" tags still gets two distinct speaker slots for TTS.
+      speaker = unattributedDialogueTurn % 2 === 0 ? "Speaker A" : "Speaker B";
+      unattributedDialogueTurn += 1;
+    }
     if (quote) {
       out.push({ index: idx++, chapterIndex, text: quote, isDialogue: true, speaker });
     }
@@ -130,10 +209,18 @@ function chunkParagraph(paragraph, chapterIndex, seedIdx) {
   const trailing = text.slice(cursor).trim();
   if (trailing) {
     for (const s of splitSentences(trailing)) {
+      if (isStandaloneSpeechAttribution(s)) continue;
       out.push({ index: idx++, chapterIndex, text: s, isDialogue: false, speaker: null });
     }
   }
   return out;
+}
+
+/** "Alice said." between quotes — not spoken aloud as narration in most fiction layouts */
+function isStandaloneSpeechAttribution(sentence) {
+  const s = String(sentence || "").trim();
+  if (!s) return false;
+  return new RegExp(`^(${NAME_SRC})\\s+(?:${SPEAKER_VERB_SRC})[.!?…]?$`, "i").test(s);
 }
 
 function mergeTinyChunks(chunks, maxLen = 280) {

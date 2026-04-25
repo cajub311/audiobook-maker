@@ -368,7 +368,7 @@
         }
         if (!active) {
           speakersList.innerHTML = enabled
-            ? '<p class="tip" style="margin:0;">No named speakers found yet — quoted lines will use the Dialogue voice above. Paste text like &ldquo;Run,&rdquo; Alice said. to auto-detect characters.</p>'
+            ? '<p class="tip" style="margin:0;">No names detected yet. Use <strong>Name said</strong> / <strong>said Name</strong>, <strong>Name:</strong> before a quote, or <strong>&mdash; Name</strong> after. Plain back-and-forth quotes are split into <strong>Speaker A</strong> / <strong>Speaker B</strong> with different voices automatically.</p>'
             : '<p class="tip" style="margin:0;">Check the box to enable multi-voice. Quoted lines get the Dialogue voice; named characters get individual voices.</p>';
           return;
         }
@@ -415,16 +415,44 @@
         }
       };
 
+      /** Assign different neural voices to each detected speaker when unset (so lines are not all narrator). */
+      const ensureAutoSpeakerVoices = () => {
+        if (!multiVoiceToggle.checked || !state.speakers.length || !state.voices.length) return;
+        const narratorId = voiceSelect.value;
+        const used = new Set([narratorId]);
+        const pool = state.voices.map((v) => v.id).filter((id) => id && id !== narratorId);
+        if (!pool.length) return;
+        let pi = 0;
+        for (const { name } of state.speakers) {
+          if (state.speakerVoices[name]) continue;
+          while (pi < pool.length && used.has(pool[pi])) pi += 1;
+          if (pi >= pool.length) pi = 0;
+          const pick = pool[pi % pool.length];
+          state.speakerVoices[name] = pick;
+          used.add(pick);
+          pi += 1;
+        }
+      };
+
       const detectFromText = () => {
         const raw = textInput.value || "";
         const chapters = splitChapters(raw);
         const chunks = splitIntoChunks(chapters);
         state.speakers = detectSpeakers(chunks).slice(0, 24);
         if (state.speakers.length) multiVoiceToggle.checked = true;
+        ensureAutoSpeakerVoices();
         renderSpeakers();
       };
 
       multiVoiceToggle.addEventListener("change", () => {
+        if (multiVoiceToggle.checked) {
+          const raw = textInput.value || "";
+          if (raw.trim()) {
+            const chunks = splitIntoChunks(splitChapters(raw));
+            state.speakers = detectSpeakers(chunks).slice(0, 24);
+          }
+          ensureAutoSpeakerVoices();
+        }
         renderSpeakers();
         persistVoiceMap();
         if (multiVoiceToggle.checked) speakersDetails.open = true;
@@ -566,6 +594,7 @@
         } else {
           setStatus(`Loaded ${voices.length} neural voices. Pick one and generate!`);
         }
+        ensureAutoSpeakerVoices();
         renderSpeakers();
       };
 
@@ -638,15 +667,17 @@
         if (useMultiVoice) {
           const chapters = splitChapters(text);
           const semanticChunks = splitIntoChunks(chapters);
-          items = semanticChunks.map((c) => ({
-            text: c.text,
-            voice:
-              (c.speaker && state.speakerVoices[c.speaker]) ||
-              (c.isDialogue && state.dialogueVoice) ||
-              voice,
-            speaker: c.speaker || null,
-            isDialogue: !!c.isDialogue,
-          }));
+          items = semanticChunks.map((c) => {
+            const perSpeaker = c.speaker && state.speakerVoices[c.speaker];
+            const lineVoice =
+              perSpeaker || (c.isDialogue && state.dialogueVoice) || voice;
+            return {
+              text: c.text,
+              voice: lineVoice,
+              speaker: c.speaker || null,
+              isDialogue: !!c.isDialogue,
+            };
+          });
         }
         const plannedChunks = items ? items.length : chunkText(text).length;
         setStatus(

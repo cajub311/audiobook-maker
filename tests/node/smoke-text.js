@@ -47,3 +47,36 @@ Bob laughed.
   assert.ok(!names.includes("He"));
   assert.ok(!names.includes("She"));
 });
+
+test("detectSpeakers handles Name: before quote", () => {
+  const text = `Chapter 1
+Sarah: "We should leave now."
+Tom: "I agree."`;
+  const chunks = splitIntoChunks(splitChapters(text));
+  const speakers = detectSpeakers(chunks);
+  const names = speakers.map((s) => s.name);
+  assert.ok(names.includes("Sarah"));
+  assert.ok(names.includes("Tom"));
+});
+
+test("detectSpeakers handles em dash after quote", () => {
+  const text = `"Wait up." — Marcus
+"Coming." — Elena`;
+  const chunks = splitIntoChunks(splitChapters(text));
+  const speakers = detectSpeakers(chunks);
+  const names = speakers.map((s) => s.name);
+  assert.ok(names.includes("Marcus"));
+  assert.ok(names.includes("Elena"));
+});
+
+test("unattributed alternating quotes get Speaker A and B", () => {
+  const text = `"Hello there."
+"Hi yourself."
+"Nice day."
+"Sure is."`;
+  const chunks = splitIntoChunks(splitChapters(text));
+  const speakers = detectSpeakers(chunks);
+  const names = new Set(speakers.map((s) => s.name));
+  assert.ok(names.has("Speaker A"));
+  assert.ok(names.has("Speaker B"));
+});
