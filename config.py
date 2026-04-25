@@ -47,6 +47,7 @@ PRONUNCIATIONS_DIR = BASE_DIR / _env_str("ABM_PRONUNCIATIONS_DIRNAME", "pronunci
 TEMP_DIR = BASE_DIR / _env_str("ABM_TEMP_DIRNAME", "temp")
 OUTPUT_DIR = BASE_DIR / _env_str("ABM_OUTPUT_DIRNAME", "output")
 BOOK_PROFILES_DIR = PRONUNCIATIONS_DIR / _env_str("ABM_BOOK_PROFILES_DIRNAME", "book_profiles")
+MODELS_DIR = BASE_DIR / _env_str("ABM_MODELS_DIRNAME", "models")
 SAVED_INPUTS_DIR = BASE_DIR / _env_str("ABM_SAVED_INPUTS_DIRNAME", "saved_inputs")
 UI_DRAFT_PATH = BASE_DIR / _env_str("ABM_UI_DRAFT_FILENAME", "ui_draft.json")
 APP_STATE_PATH = BASE_DIR / _env_str("ABM_APP_STATE_FILENAME", "app_state.json")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import re
 import time
@@ -9,6 +10,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
+from urllib.request import urlopen
+
+logger = logging.getLogger("audiobook-maker.tts")
 
 
 def _parse_voice_string(voice: str) -> tuple[str, str, str | None]:
@@ -181,6 +185,45 @@ class EdgeTTSEngine(TTSEngine):
         return self._deps.run_coro_sync_fn(self.generate(sample, voice, output_path=preview_path))
 
 
+KOKORO_MODEL_URLS = {
+    "kokoro-v1.0.onnx": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx",
+    "voices-v1.0.bin": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin",
+}
+
+
+def _download_file(url: str, dest: Path) -> None:
+    logger.info("Downloading %s -> %s", url, dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".tmp")
+    try:
+        with urlopen(url, timeout=120) as resp, open(tmp, "wb") as f:
+            while True:
+                chunk = resp.read(256 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+        tmp.rename(dest)
+        logger.info("Downloaded %s (%.1f MB)", dest.name, dest.stat().st_size / (1024 * 1024))
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def ensure_kokoro_models(models_dir: Optional[Path] = None) -> tuple[str, str]:
+    model_path = os.environ.get("KOKORO_MODEL", "kokoro-v1.0.onnx")
+    voices_path = os.environ.get("KOKORO_VOICES", "voices-v1.0.bin")
+    if Path(model_path).exists() and Path(voices_path).exists():
+        return model_path, voices_path
+    base = models_dir or Path(os.environ.get("ABM_MODELS_DIR", str(Path(__file__).resolve().parent.parent / "models")))
+    base.mkdir(parents=True, exist_ok=True)
+    local_model = base / "kokoro-v1.0.onnx"
+    local_voices = base / "voices-v1.0.bin"
+    for local, key in [(local_model, "kokoro-v1.0.onnx"), (local_voices, "voices-v1.0.bin")]:
+        if not local.exists():
+            _download_file(KOKORO_MODEL_URLS[key], local)
+    return str(local_model), str(local_voices)
+
+
 class KokoroEngine(TTSEngine):
     def __init__(self, deps: EngineDeps) -> None:
         self._deps = deps
@@ -193,11 +236,11 @@ class KokoroEngine(TTSEngine):
         try:
             from kokoro_onnx import Kokoro  # type: ignore
 
-            model_path = os.environ.get("KOKORO_MODEL", "kokoro-v1.0.onnx")
-            voices_path = os.environ.get("KOKORO_VOICES", "voices-v1.0.bin")
+            model_path, voices_path = ensure_kokoro_models()
             self._model = Kokoro(model_path, voices_path)
         except Exception as exc:
             self._model_error = str(exc)
+            logger.warning("Kokoro model load failed: %s", exc)
 
     @property
     def max_concurrent(self) -> int:
@@ -256,6 +299,59 @@ class KokoroEngine(TTSEngine):
         sample = self._deps.preview_sample_text
         preview_path = str(self._deps.temp_dir / f"preview_kokoro_{self._deps.slugify_fn(voice)}.wav")
         return self._deps.run_coro_sync_fn(self.generate(sample, voice, output_path=preview_path))
+
+
+def engine_availability() -> dict[str, dict[str, Any]]:
+    """Check which engines are available and ready to use."""
+    status: dict[str, dict[str, Any]] = {}
+
+    # Edge-TTS: needs the module + internet
+    edge_ok = False
+    try:
+        import edge_tts  # type: ignore  # noqa: F401
+        edge_ok = True
+    except ImportError:
+        pass
+    status["edge-tts"] = {
+        "installed": edge_ok,
+        "ready": edge_ok,
+        "label": "edge-tts (Cloud, Free)",
+        "fix": "pip install edge-tts" if not edge_ok else None,
+    }
+
+    # Kokoro: needs the module + model files
+    kokoro_mod = False
+    try:
+        import kokoro_onnx  # type: ignore  # noqa: F401
+        kokoro_mod = True
+    except ImportError:
+        pass
+    model_path = os.environ.get("KOKORO_MODEL", "kokoro-v1.0.onnx")
+    voices_path = os.environ.get("KOKORO_VOICES", "voices-v1.0.bin")
+    models_dir = Path(os.environ.get("ABM_MODELS_DIR", str(Path(__file__).resolve().parent.parent / "models")))
+    has_models = (
+        Path(model_path).exists() and Path(voices_path).exists()
+    ) or (
+        (models_dir / "kokoro-v1.0.onnx").exists() and (models_dir / "voices-v1.0.bin").exists()
+    )
+    status["kokoro"] = {
+        "installed": kokoro_mod,
+        "has_models": has_models,
+        "ready": kokoro_mod,  # models auto-download now
+        "label": "kokoro (Offline, CPU)",
+        "fix": "pip install kokoro-onnx kokoro soundfile" if not kokoro_mod else None,
+    }
+    return status
+
+
+def auto_select_engine() -> str:
+    """Pick the best available engine. Prefers edge-tts (faster), falls back to kokoro."""
+    avail = engine_availability()
+    if avail.get("edge-tts", {}).get("ready"):
+        return "edge-tts"
+    if avail.get("kokoro", {}).get("ready"):
+        return "kokoro"
+    return "edge-tts"
 
 
 def create_tts_engine(engine_name: str, deps: EngineDeps) -> TTSEngine:

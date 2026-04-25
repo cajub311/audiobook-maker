@@ -57,6 +57,7 @@ from config import (
     MAX_CLOUD_MANIFEST_BYTES,
     MAX_REMOTE_TEXT_BYTES,
     MAX_UPLOAD_FILE_BYTES,
+    MODELS_DIR,
     OUTPUT_DIR,
     PRONUNCIATIONS_DIR,
     QUICK_CACHE_MAX_SIZE_MB,
@@ -75,7 +76,13 @@ from parsers.source import (
     validate_local_input_file as parser_validate_local_input_file,
 )
 from cache.audio_cache import AudioCache as AudioCacheImpl, AudioCacheDeps
-from tts.engines import EngineDeps, TTSEngine, create_tts_engine as create_tts_engine_impl
+from tts.engines import (
+    EngineDeps,
+    TTSEngine,
+    auto_select_engine,
+    create_tts_engine as create_tts_engine_impl,
+    engine_availability,
+)
 
 PREVIEW_SAMPLE_TEXT = (
     "This is a ten second voice preview for Audiobook Maker version seven. "
@@ -109,7 +116,7 @@ logger = logging.getLogger("audiobook-maker")
 
 
 def ensure_runtime_dirs() -> None:
-    for directory in (CACHE_DIR, MANIFESTS_DIR, PRONUNCIATIONS_DIR, TEMP_DIR, OUTPUT_DIR, BOOK_PROFILES_DIR, SAVED_INPUTS_DIR):
+    for directory in (CACHE_DIR, MANIFESTS_DIR, PRONUNCIATIONS_DIR, TEMP_DIR, OUTPUT_DIR, BOOK_PROFILES_DIR, SAVED_INPUTS_DIR, MODELS_DIR):
         directory.mkdir(parents=True, exist_ok=True)
 
 
@@ -576,8 +583,29 @@ def run_preflight_checks() -> list[list[str]]:
     checks: list[list[str]] = []
     checks.append(["FFmpeg", "OK" if shutil.which("ffmpeg") else "Missing", "Required for assembly"])
     checks.append(["FFprobe", "OK" if shutil.which("ffprobe") else "Missing", "Required for duration/validation"])
-    checks.append(["edge-tts", "OK" if _module_exists("edge_tts") else "Optional", "Cloud TTS engine"])
-    checks.append(["kokoro-onnx", "OK" if _module_exists("kokoro_onnx") else "Optional", "Offline TTS engine"])
+
+    avail = engine_availability()
+    edge = avail.get("edge-tts", {})
+    kokoro = avail.get("kokoro", {})
+    checks.append([
+        "edge-tts",
+        "Ready" if edge.get("ready") else "Not installed",
+        "Cloud TTS (free, 100+ voices)" + (f" · Fix: {edge['fix']}" if edge.get("fix") else ""),
+    ])
+    kokoro_note = "Offline TTS (free, no internet)"
+    if not kokoro.get("installed"):
+        kokoro_note += f" · Fix: {kokoro['fix']}"
+    elif not kokoro.get("has_models"):
+        kokoro_note += " · Models auto-download on first use"
+    checks.append([
+        "kokoro",
+        "Ready" if kokoro.get("ready") else "Not installed",
+        kokoro_note,
+    ])
+
+    best = auto_select_engine()
+    checks.append(["Auto-selected engine", best, "Best available free engine"])
+
     checks.append(["spacy", "OK" if _module_exists("spacy") else "Optional", "Dialogue attribution fallback"])
     checks.append(["spacy model", "OK" if _spacy_model_exists() else "Optional", "en_core_web_sm"])
     disk_mb = shutil.disk_usage(str(BASE_DIR)).free // (1024 * 1024)
@@ -2253,7 +2281,10 @@ def build_ui():
                 value="MP3 (single file, easiest to share)",
                 label="Output format",
             )
-            quick_voice_choices = voices_for_engine("edge-tts")
+            _quick_engine = auto_select_engine()
+            quick_voice_choices = voices_for_engine(_quick_engine)
+            _engine_hint = f"Auto-selected engine: **{_quick_engine}** (free). Change in Voices tab."
+            gr.Markdown(_engine_hint)
             with gr.Accordion("Show advanced options", open=False):
                 quick_voice_simple = gr.Dropdown(
                     label="Voice (optional)",
@@ -2379,6 +2410,17 @@ def build_ui():
             download_file = gr.File(label="Download")
 
         with gr.Tab("System"):
+            gr.Markdown("### Setup Status")
+            _avail = engine_availability()
+            _ready_engines = [k for k, v in _avail.items() if v.get("ready")]
+            if _ready_engines:
+                _setup_md = f"**{len(_ready_engines)} engine(s) ready**: {', '.join(_ready_engines)}. All free, no API keys needed."
+            else:
+                _setup_md = "**No TTS engines detected.** Run: `pip install edge-tts kokoro-onnx kokoro soundfile`"
+            _fixes = [v["fix"] for v in _avail.values() if v.get("fix")]
+            if _fixes:
+                _setup_md += "\n\nTo install missing engines:\n```\n" + "\n".join(_fixes) + "\n```"
+            gr.Markdown(_setup_md)
             preflight_table = gr.Dataframe(headers=["Check", "Status", "Detail"], value=run_preflight_checks(), interactive=False)
             refresh_preflight_btn = gr.Button("Refresh system checks")
             cloud_manifest_url = gr.Textbox(label="Free cloud manifest URL", placeholder="https://jsonblob.com/api/jsonBlob/...")
@@ -3211,8 +3253,8 @@ def build_ui():
                         "",
                     )
                     return
-                primary_engine = "edge-tts"
-                selected_voice = str(quick_voice or "en-US-GuyNeural")
+                primary_engine = auto_select_engine()
+                selected_voice = str(quick_voice or ("en-US-GuyNeural" if primary_engine == "edge-tts" else "af_sarah"))
                 narrator = selected_voice
                 dialogue = selected_voice
                 output_mode = "m4b" if str(output_fmt).lower().startswith("m4b") else "mp3"
