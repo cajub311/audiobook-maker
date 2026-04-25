@@ -66,6 +66,14 @@
       }
       button:active:not(:disabled) { transform: translateY(1px); }
       button:disabled { opacity: 0.6; cursor: not-allowed; }
+      a:focus-visible,
+      button:focus-visible,
+      textarea:focus-visible,
+      select:focus-visible,
+      input:focus-visible {
+        outline: 2px solid #a5b4fc;
+        outline-offset: 2px;
+      }
       .primary { background: var(--brand); color: #fff; }
       .primary:hover:not(:disabled) { background: var(--brand-hover); }
       .secondary { background: #1e293b; color: var(--text); border: 1px solid var(--panel-border); }
@@ -100,7 +108,7 @@
         </div>
       </header>
 
-      <div id="status" class="status">
+      <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true">
         Ready. Paste some text below and press <strong>Create audiobook</strong>.
         <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
       </div>

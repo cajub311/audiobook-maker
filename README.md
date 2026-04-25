@@ -24,6 +24,7 @@ Open `/web/index.html` after deploying, paste text, pick a voice, press **Create
 |-------|--------|---------|
 | `GET /api/voices` | | List curated neural voices (`{ voices, default }`). |
 | `POST /api/tts` | | Synthesize one chunk. Body: `{ text, voice, rate, pitch, volume, format }`. Returns `audio/mpeg`. |
+| `POST /api/process` | | Demo async job (returns `job_id` + `poll_url`; text length capped). |
 | `GET /api/health` | | Service health check. |
 | `GET /api/launch` | | Launcher metadata & instructions. |
 
