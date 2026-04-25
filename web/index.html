@@ -255,6 +255,8 @@
       const btnClear = $("btn-clear");
       const btnShare = $("btn-share");
 
+      let isGenerating = false;
+
       const state = {
         voices: [],
         defaultVoice: null,
@@ -441,7 +443,10 @@
       };
       textInput.addEventListener("input", () => {
         updateStats();
-        saveDraft(textInput.value);
+        const draft = saveDraft(textInput.value);
+        if (draft && !draft.ok) {
+          setError("Could not autosave draft: " + (draft.error || "storage quota may be full"));
+        }
         scheduleDetect();
       });
       rateInput.addEventListener("input", updateRateDisplay);
@@ -469,7 +474,10 @@
           });
           textInput.value = result.text;
           updateStats();
-          saveDraft(result.text);
+          const draft = saveDraft(result.text);
+          if (draft && !draft.ok) {
+            setError("Could not save draft after upload: " + (draft.error || "storage quota may be full"));
+          }
           detectFromText();
           const bits = [`Loaded <strong>${file.name}</strong>`];
           if (result.kind && result.kind !== "txt") bits.push(`parsed as ${result.kind.toUpperCase()}`);
@@ -495,7 +503,10 @@
           + `The Audiobook Maker turns any text into spoken audio using neural voices. `
           + `Try different voices, adjust the speed, and download your audiobook as an MP3.`;
         updateStats();
-        saveDraft(textInput.value);
+        const draft = saveDraft(textInput.value);
+        if (draft && !draft.ok) {
+          setError("Could not save draft: " + (draft.error || "storage quota may be full"));
+        }
         detectFromText();
         setStatus("Loaded sample text. Press <strong>Create audiobook</strong>.");
         setError(null);
@@ -592,11 +603,13 @@
       });
 
       btnCreate.addEventListener("click", async () => {
+        if (isGenerating) return;
         const text = String(textInput.value || "").trim();
         if (!text) {
           setError("Paste or upload some text first.");
           return;
         }
+        isGenerating = true;
         setError(null);
         outputCard.hidden = true;
         if (state.resultUrl) { URL.revokeObjectURL(state.resultUrl); state.resultUrl = null; }
@@ -673,6 +686,7 @@
             setStatus("Generation failed. Check the error above.", { progress: 0 });
           }
         } finally {
+          isGenerating = false;
           btnCreate.disabled = false;
           btnCreate.textContent = "Create audiobook";
           btnCancel.disabled = true;
@@ -698,7 +712,10 @@
           await navigator.clipboard.writeText(window.location.href);
           setStatus("Copied page URL. Share the audiobook by downloading the MP3.");
         } catch (err) {
-          if (err && err.name === "AbortError") return;
+          if (err && err.name === "AbortError") {
+            setStatus("Share cancelled.");
+            return;
+          }
           setError("Share failed: " + (err && err.message ? err.message : err));
         }
       });

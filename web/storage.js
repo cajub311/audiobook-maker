@@ -12,7 +12,8 @@ export function saveDraft(text) {
 export function loadDraft() {
   try {
     return localStorage.getItem(DRAFT_KEY) || "";
-  } catch (_err) {
+  } catch (err) {
+    console.warn("loadDraft failed:", err instanceof Error ? err.message : String(err));
     return "";
   }
 }
