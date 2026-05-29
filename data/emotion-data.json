@@ -1,1 +1,113 @@
-<<FULL CURRENT CONTENT>>
+{
+  "version": "1.0",
+  "description": "Single source of truth for rich emotional SSML rules used by the free Edge neural path. Used to generate loaders for Node (ssml-builder.js) and Python (tts/engines.py).",
+  "emotionRules": [
+    {
+      "name": "sad",
+      "pattern": "\\b(sad|sorrow|grief|tears|heartbroken|weep|wept|mourn|mournful|despair|lonely|melancholy|tragically|devastated|funeral|loss|cried|grieving|sobbed|sob|sobbing|pleaded|plead|begged)\\b",
+      "flags": "gi",
+      "style": "sad",
+      "degreeFactor": 1.15
+    },
+    {
+      "name": "angry",
+      "pattern": "\\b(angry|anger|furious|rage|raged|hate|hatred|shouted|snapped|growled|snarled|damn|bastard|hell|enraged|outraged|furiously|curse|hissed|hiss|roared(?! with laughter)|screamed|scream|yelled|yell|demanded)\\b",
+      "flags": "gi",
+      "style": "angry",
+      "degreeFactor": 1.22
+    },
+    {
+      "name": "excited",
+      "pattern": "\\b(excited|thrilled|amazing|wonderful|joy|ecstatic|fantastic|yay|hurrah|cheered|exhilarated|delighted|joyfully|magnificent)\\b",
+      "flags": "gi",
+      "style": "cheerful",
+      "degreeFactor": 1.28
+    },
+    {
+      "name": "whisper",
+      "pattern": "\\b(whisper|whispered|softly|quietly|hushed|secret|murmur|muttered|under (his|her|their) breath|confided)\\b",
+      "flags": "gi",
+      "style": "whisper",
+      "degreeFactor": 0.78
+    },
+    {
+      "name": "fear",
+      "pattern": "\\b(fear|terrified|scared|afraid|trembled|panic|panicked|horror|dread|shudder|afraid|terror|gasped|gasp)\\b",
+      "flags": "gi",
+      "style": "terrified",
+      "degreeFactor": 1.1
+    },
+    {
+      "name": "laugh",
+      "pattern": "\\b(laugh|laughed|laughing|chuckle|chuckled|giggled|hilarious|funny|joked|roared with laughter)\\b",
+      "flags": "gi",
+      "style": "cheerful",
+      "degreeFactor": 0.9
+    },
+    {
+      "name": "gentle",
+      "pattern": "\\b(gently|soft|warmly|tender|caressed|smiled softly|kindly|lovingly)\\b",
+      "flags": "gi",
+      "style": "empathetic",
+      "degreeFactor": 0.95
+    },
+    {
+      "name": "ecstatic",
+      "pattern": "\\b(ecstatic|ecstasy|bliss|rapture|overjoyed|jubilant|elated)\\b",
+      "flags": "gi",
+      "style": "cheerful",
+      "degreeFactor": 1.35
+    },
+    {
+      "name": "betrayal",
+      "pattern": "\\b(betray|betrayal|treason|backstab|deceive|heartbreak|devastated|betrayed|double.?crossed)\\b",
+      "flags": "gi",
+      "style": "sad",
+      "degreeFactor": 1.25
+    },
+    {
+      "name": "sarcastic",
+      "pattern": "\\b(sarcastically|dryly|with a smirk|yeah right|as if|eye.?roll|scoffed)\\b",
+      "flags": "gi",
+      "style": "angry",
+      "degreeFactor": 0.82
+    },
+    {
+      "name": "intense",
+      "pattern": "\\b(despite|desperately|frantically|urgently|Suddenly)\\b",
+      "flags": "gi",
+      "style": "angry",
+      "degreeFactor": 1.12
+    }
+  ],
+  "autoDetectCues": {
+    "ecstatic": ["amazing", "incredible", "best ever", "fantastic", "ecstatic", "!"],
+    "excited": ["excited", "can't wait", "wow", "suddenly", "!"],
+    "sarcastic": ["sure", "yeah right", "of course", "as if", "dryly", "sarcastically", "scoffed"],
+    "whispering": ["whisper", "quietly", "don't tell", "secret"],
+    "sad": ["sad", "sorry", "cried", "whispered", "trembling", "lost", "sobbed", "pleaded"],
+    "angry": ["angry", "furious", "shouted", "how dare", "never", "hissed", "demanded", "roared", "screamed", "yelled"],
+    "gentle": ["softly", "gently", "warm", "calm", "whispered"],
+    "intense": ["suddenly", "everything changed", "desperately", "now!", "Suddenly", "frantically"],
+    "fear": ["fear", "terrified", "scared", "gasped", "panic", "dread"]
+  },
+  "expressMap": {
+    "natural": { "base": null, "dialogue": "friendly" },
+    "dramatic": { "base": "narration-professional", "dialogue": "cheerful" },
+    "conversational": { "base": "friendly", "dialogue": "friendly" },
+    "gentle": { "base": "empathetic", "dialogue": "empathetic" },
+    "intense": { "base": "angry", "dialogue": "terrified" },
+    "excited": { "base": "cheerful", "dialogue": "excited" },
+    "sad": { "base": "sad", "dialogue": "empathetic" },
+    "calm": { "base": "calm", "dialogue": "gentle" },
+    "whispering": { "base": "whisper", "dialogue": "whisper" },
+    "sarcastic": { "base": null, "dialogue": "angry" }
+  },
+  "quotePatterns": [
+    { "pattern": "[\\u201C\\u201D\"]([^\"\\u201C\\u201D]{0,600})[\\u201C\\u201D\"]", "flags": "g" },
+    { "pattern": "[\\u00AB]([^\\u00BB]{0,600})[\\u00BB]", "flags": "g" },
+    { "pattern": "[\\u300C]([^\\u300D]{0,600})[\\u300D]", "flags": "g" },
+    { "pattern": "[\\u300E]([^\\u300F]{0,600})[\\u300F]", "flags": "g" },
+    { "pattern": "['\\u2018\\u2019]([^'\\u2018\\u2019]{0,600})['\\u2018\\u2019]", "flags": "g" }
+  ]
+}
