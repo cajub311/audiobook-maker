@@ -250,7 +250,7 @@ function buildSegmentSSML(seg, opts = {}) {
   const emo = detectEmotion(seg.text, expressiveness);
   if (emo) {
     const role = (seg.isDialogue || dialogueHint) ? getDialogueRole(true, roleHint) : null;
-    const roleAttr = role ? ` role="${role}" ` : "";
+    const roleAttr = role ? ` role="${role}"` : "";
     segContent = `<mstts:express-as style="${emo.style}" styledegree="${emo.degree}"${roleAttr}>${segContent}</mstts:express-as>`;
   }
 
@@ -357,8 +357,8 @@ function textToRichSSML(text, options = {}) {
   // or for global narration color on dramatic/calm styles). Avoids over-wrapping.
   const hasLocalEmotion = inner.includes('mstts:express-as');
   if (expressStyle && expressiveness > 0.30 && (!hasLocalEmotion || expressiveness > 0.78)) {
-    const roleAttr = role ? ` role="${role}" ` : "";
-    inner = `<mstts:express-as style="${expressStyle}" styledegree="${Math.min(1.9, Math.max(0.6, expressiveness * 1.6)).toFixed(1)} "${roleAttr}>${inner}</mstts:express-as>`;
+    const roleAttr = role ? ` role="${role}"` : "";
+    inner = `<mstts:express-as style="${expressStyle}" styledegree="${Math.min(1.9, Math.max(0.6, expressiveness * 1.6)).toFixed(1)}"${roleAttr}>${inner}</mstts:express-as>`;
   }
 
   const lang = "en-US";

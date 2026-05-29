@@ -178,3 +178,39 @@ export function detectSpeakers(chunks) {
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count);
 }
+
+// Client-side mirror of server api/ssml-builder.js:autoDetectEmotion
+// Pure, zero-deps, used by the "Enhance" button + debug flows for instant style + expressiveness suggestions.
+// Keeps emotion magic working 100% in the browser without extra roundtrips.
+export function autoDetectEmotion(text) {
+  const t = String(text || "").toLowerCase();
+  let style = "natural";
+  let boost = 0;
+
+  const cues = {
+    ecstatic: ["amazing", "incredible", "best ever", "fantastic", "ecstatic", "!"],
+    excited: ["excited", "can't wait", "wow", "suddenly", "!"],
+    sarcastic: ["sure", "yeah right", "of course", "as if"],
+    whispering: ["whisper", "quietly", "don't tell", "secret"],
+    sad: ["sad", "sorry", "cried", "whispered", "trembling", "lost"],
+    angry: ["angry", "furious", "shouted", "how dare", "never"],
+    gentle: ["softly", "gently", "warm", "calm", "whispered"],
+    intense: ["suddenly", "everything changed", "desperately", "now!"],
+  };
+
+  for (const [s, words] of Object.entries(cues)) {
+    if (words.some(w => t.includes(w))) {
+      style = s;
+      boost = 0.15;
+      break;
+    }
+  }
+
+  // Punctuation boosts (excitement / conversational)
+  const exclam = (t.match(/!/g) || []).length;
+  const q = (t.match(/\?/g) || []).length;
+  if (exclam > 1) { style = "excited"; boost += 0.1; }
+  if (q > 0 && style === "natural") { style = "conversational"; }
+
+  return { suggestedStyle: style, expressivenessBoost: Math.min(0.3, boost) };
+}
