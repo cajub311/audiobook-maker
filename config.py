@@ -38,7 +38,9 @@ def _env_float(name: str, default: float, *, minimum: float | None = None) -> fl
 
 
 APP_VERSION = _env_str("ABM_APP_VERSION", "7.0")
-CACHE_KEY_SCHEMA_VERSION = _env_int("ABM_CACHE_KEY_SCHEMA_VERSION", 2, minimum=1)
+# Bumped to 3 for rich emotional SSML (style + expressiveness) inclusion in cache keys.
+# This ensures pre-upgrade flat audio caches are not served for new emotional generations.
+CACHE_KEY_SCHEMA_VERSION = _env_int("ABM_CACHE_KEY_SCHEMA_VERSION", 3, minimum=1)
 
 BASE_DIR = Path(_env_str("ABM_BASE_DIR", str(Path(__file__).resolve().parent))).resolve()
 CACHE_DIR = BASE_DIR / _env_str("ABM_CACHE_DIRNAME", "tts_cache")

@@ -1,15 +1,15 @@
 {
-  "name": "Audiobook Maker Launcher",
-  "short_name": "Audiobook",
-  "description": "Mobile-friendly launcher for the Audiobook Maker V7 pipeline.",
-  "start_url": "/",
+  "name": "Audiobook Maker",
+  "short_name": "Audiobook Maker",
+  "description": "Turn any text into a real MP3 audiobook in your browser using neural voices. Free, no sign-up, installable PWA.",
+  "start_url": "/web/index.html",
   "scope": "/",
   "display": "standalone",
-  "display_override": ["standalone", "browser"],
-  "orientation": "portrait-primary",
-  "background_color": "#111827",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "any",
+  "background_color": "#0b1020",
   "theme_color": "#4f46e5",
-  "categories": ["productivity", "utilities", "books"],
+  "categories": ["productivity", "utilities", "books", "entertainment"],
   "icons": [
     {
       "src": "/icon.svg",
@@ -20,9 +20,15 @@
   ],
   "shortcuts": [
     {
-      "name": "Quick Start",
-      "short_name": "Quick Start",
-      "url": "/#quickstart"
+      "name": "Open Audiobook Maker",
+      "short_name": "Maker",
+      "url": "/web/index.html",
+      "description": "Start creating an audiobook from text"
+    },
+    {
+      "name": "Launcher & Docs",
+      "short_name": "Launcher",
+      "url": "/website/index.html"
     }
   ]
 }

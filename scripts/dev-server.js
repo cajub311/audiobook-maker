@@ -15,6 +15,7 @@ const handlers = {
   "/api/health": require(path.join(ROOT, "api/health")),
   "/api/launch": require(path.join(ROOT, "api/launch")),
   "/api/process": require(path.join(ROOT, "api/process")),
+  "/api/elevenlabs": require(path.join(ROOT, "api/elevenlabs")),
 };
 
 function mimeOf(p) {
