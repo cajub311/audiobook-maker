@@ -1,79 +1,195 @@
-/* generate rich vs basic SSML + mock premium settings for the emotional corpus */
+#!/usr/bin/env node
 "use strict";
+
+/**
+ * Voice Emotion Samples Generator + A/B Reporter
+ *
+ * Usage:
+ *   node tests/voice-emotion-samples/generate.js
+ *   node tests/voice-emotion-samples/generate.js --write
+ *   node tests/voice-emotion-samples/generate.js --help
+ *
+ * - Loads the emotional test corpus (13 carefully chosen short passages)
+ * - Uses the *local* rich SSML builder (api/ssml-builder.js) for the "free" path
+ * - Generates "mock premium" using basic SSML (legacy path) + simulated ElevenLabs voice settings
+ * - Prints a clean console A/B report highlighting SSML differences + practical listening notes
+ * - With --write: also emits individual .ssml files + a full report.txt for easy iteration
+ *
+ * Goal: Rapidly iterate on emotional delivery, prosody, express-as styles, breaks,
+ * emphasis, dialogue role handling, and punctuation intelligence without needing
+ * the full web UI or real audio synthesis every time.
+ *
+ * Run this often while tuning EMOTION_RULES, autoDetectEmotion, buildSegmentSSML, etc.
+ */
 
 const fs = require("fs");
 const path = require("path");
-const { textToRichSSML } = require("../../api/ssml-builder");
 
-const CORPUS = require("./corpus");
-const OUT_DIR = path.join(__dirname, "outputs");
+// Local rich SSML builder (the real one used by the free Edge path)
+// From tests/voice-emotion-samples/ we go up two levels to project root, then into api/
+const builder = require("../../api/ssml-builder");
+const { textToRichSSML, textToBasicSSML, autoDetectEmotion } = builder;
 
-function basicSSML(text) {
-  const escaped = String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US"><prosody rate="+0%" pitch="+0Hz" volume="+0%">${escaped}</prosody></speak>`;
-}
+// Corpus of emotional test cases
+const corpus = require("./corpus");
 
-function mockElevenSettings(style, expressiveness) {
-  const base = { stability: 0.55, similarity_boost: 0.82, style: 0.55, use_speaker_boost: true };
-  const exp = Math.max(0.2, Math.min(0.95, Number(expressiveness) || 0.68));
-  if (style === "sad") return { ...base, stability: Math.max(0.35, 0.65 - exp * 0.3), style: 0.25 + exp * 0.3 };
-  if (style === "angry" || style === "intense") return { ...base, stability: Math.max(0.25, 0.6 - exp * 0.4), style: 0.4 + exp * 0.5 };
-  if (style === "excited" || style === "cheerful") return { ...base, stability: 0.4 + (1 - exp) * 0.3, style: 0.3 + exp * 0.6 };
-  if (style === "whisper") return { ...base, stability: 0.75, style: 0.15, similarity_boost: 0.88 };
-  return { ...base, style: 0.35 + exp * 0.4 };
-}
+// Simple inline version of the ElevenLabs mapping (from web/api-client.js)
+// Used only for the "mock premium" simulation report — not for actual synthesis.
+function mockElevenLabsSettings(style = "natural", expressiveness = 0.5) {
+  const e = Math.max(0, Math.min(1, Number(expressiveness) || 0.5));
+  let stability = 0.78 - (e * 0.58);
+  stability = Math.max(0.18, Math.min(0.92, stability));
 
-function run({ write = false } = {}) {
-  if (write && !fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
-
-  const reports = [];
-
-  for (const sample of CORPUS) {
-    const rich = textToRichSSML(sample.text, {
-      style: sample.defaultStyle,
-      expressiveness: sample.defaultExpress,
-    });
-    const basic = basicSSML(sample.text);
-    const mockPremium = mockElevenSettings(sample.defaultStyle, sample.defaultExpress);
-
-    const report = {
-      id: sample.id,
-      category: sample.category,
-      text: sample.text,
-      listeningNotes: sample.listeningNotes,
-      defaultStyle: sample.defaultStyle,
-      defaultExpress: sample.defaultExpress,
-      richSSML: rich,
-      basicSSML: basic,
-      mockEleven: mockPremium,
-    };
-    reports.push(report);
-
-    if (write) {
-      fs.writeFileSync(path.join(OUT_DIR, `${sample.id}-rich.ssml`), rich);
-      fs.writeFileSync(path.join(OUT_DIR, `${sample.id}-basic.ssml`), basic);
-      fs.writeFileSync(path.join(OUT_DIR, `${sample.id}-report.txt`), JSON.stringify(report, null, 2));
-    }
+  let styleExag = e * 0.72;
+  const s = String(style || "natural").toLowerCase();
+  if (["dramatic", "intense", "excited"].includes(s)) {
+    styleExag = Math.min(1.0, styleExag + 0.22);
+    stability = Math.max(0.12, stability - 0.08);
+  } else if (["gentle", "calm", "conversational", "sad"].includes(s)) {
+    styleExag = Math.max(0.03, styleExag - 0.18);
+    stability = Math.min(0.88, stability + 0.08);
   }
 
-  const fullReport = {
-    generatedAt: new Date().toISOString(),
-    count: reports.length,
-    samples: reports,
+  return {
+    stability: Number(stability.toFixed(2)),
+    similarity_boost: 0.82,
+    style: Number(Math.min(1, Math.max(0, styleExag)).toFixed(2)),
+    use_speaker_boost: true,
   };
+}
 
-  if (write) {
-    fs.writeFileSync(path.join(OUT_DIR, "FULL-REPORT.txt"), JSON.stringify(fullReport, null, 2));
-    console.log(`Wrote ${reports.length} samples + FULL-REPORT.txt to ${OUT_DIR}`);
-  } else {
-    console.log(JSON.stringify(fullReport, null, 2));
+function formatDiffHighlights(rich, basic) {
+  const hasExpress = rich.includes("mstts:express-as");
+  const expressCount = (rich.match(/mstts:express-as/g) || []).length;
+  const breakCount = (rich.match(/<break /g) || []).length;
+  const emphasisCount = (rich.match(/<emphasis /g) || []).length;
+  const prosodyLocal = (rich.match(/<prosody /g) || []).length - 1; // minus the outer one
+
+  const lines = [];
+  lines.push(`  • Rich adds mstts:express-as wrappers: ${hasExpress ? "YES" : "NO"} (${expressCount} total)`);
+  lines.push(`  • Strategic <break> elements inserted: ${breakCount}`);
+  lines.push(`  • <emphasis> tags on emotional words: ${emphasisCount}`);
+  lines.push(`  • Local <prosody> tweaks (questions/exclamations/dialogue): ${Math.max(0, prosodyLocal)}`);
+  lines.push(`  • Basic path is pure cleaned text inside a single outer <prosody> — zero emotion intelligence.`);
+
+  if (rich.includes('style="sad"') || rich.includes('style="angry"')) {
+    lines.push(`  • Detected strong emotion styles (sad/angry/etc) — key for timbre change.`);
   }
-  return fullReport;
+  if (rich.includes('role="YoungAdultFemale"')) {
+    lines.push(`  • Dialogue role attribute present — spoken lines should feel like a distinct character.`);
+  }
+  if (rich.includes("+7Hz") || rich.includes("+6Hz")) {
+    lines.push(`  • Question/exclamation pitch lifts active.`);
+  }
+  return lines.join("\n");
 }
 
-if (require.main === module) {
-  const write = process.argv.includes("--write");
-  run({ write });
+function printSection(title) {
+  const bar = "─".repeat(78);
+  console.log("\n" + bar);
+  console.log(title);
+  console.log(bar);
 }
 
-module.exports = { run };
+function truncateForConsole(str, max = 920) {
+  if (str.length <= max) return str;
+  return str.slice(0, max) + "\n... [truncated for console — full version written to disk if --write used]";
+}
+
+function run() {
+  const args = process.argv.slice(2);
+  const doWrite = args.includes("--write") || args.includes("-w");
+  const showHelp = args.includes("--help") || args.includes("-h");
+
+  if (showHelp) {
+    console.log(`
+Voice Emotion Samples — A/B Generator for SSML Tuning
+
+Usage:
+  node tests/voice-emotion-samples/generate.js
+  node tests/voice-emotion-samples/generate.js --write     (also writes .ssml + report.txt)
+
+This script exercises the exact same rich SSML builder that powers the free
+Microsoft Edge neural path in production. Use the generated SSML + listening
+notes to rapidly judge and improve emotional performance (sad, angry, excited,
+sarcastic, whispering, dramatic, questions, dialogue role, breaks, emphasis).
+
+You can feed any of the generated *-free.ssml files directly into the Edge TTS
+raw SSML endpoint or the web UI debug mode for audible validation.
+`);
+    process.exit(0);
+  }
+
+  console.log("🎤  Voice Emotion Samples Generator");
+  console.log("   Free path: local rich SSML builder (textToRichSSML)");
+  console.log("   Mock premium: basic SSML + simulated ElevenLabs voice_settings");
+  console.log(`   Corpus size: ${corpus.length} samples\n`);
+
+  const outputsDir = path.join(__dirname, "outputs");
+  if (doWrite) {
+    fs.mkdirSync(outputsDir, { recursive: true });
+    console.log(`📁 Writing detailed outputs to: ${outputsDir}\n`);
+  }
+
+  const fullReportLines = [];
+  fullReportLines.push("VOICE EMOTION SAMPLES — FULL A/B REPORT");
+  fullReportLines.push(`Generated: ${new Date().toISOString()}`);
+  fullReportLines.push(`Builder: api/ssml-builder.js (textToRichSSML + textToBasicSSML)`);
+  fullReportLines.push(`Total samples: ${corpus.length}\n`);
+
+  let richTriggeredEmotion = 0;
+  let dialogueCount = 0;
+  let totalExpressBoosts = 0;
+
+  corpus.forEach((sample, idx) => {
+    const num = String(idx + 1).padStart(2, "0");
+    const { id, text, category, defaultStyle, defaultExpress, listeningNotes } = sample;
+
+    const style = defaultStyle || "auto";
+    const expr = defaultExpress || 0.78;
+
+    const rich = textToRichSSML(text, { style, expressiveness: expr });
+    const basic = textToBasicSSML ? textToBasicSSML(text) : `<prosody>${text}</prosody>`;
+    const mockPremium = mockElevenLabsSettings(style, expr);
+
+    if (rich.includes("mstts:express-as")) richTriggeredEmotion++;
+    if (rich.includes("role=\"")) dialogueCount++;
+    if (expr > 0.7) totalExpressBoosts++;
+
+    printSection(`${num}. ${id} [${category || style}]`);
+    console.log("TEXT:", text.slice(0, 160) + (text.length > 160 ? "..." : ""));
+    console.log("\nFREE RICH SSML:");
+    console.log(truncateForConsole(rich));
+    console.log("\nBASIC SSML:");
+    console.log(truncateForConsole(basic));
+    console.log(`\nMOCK PREMIUM SETTINGS: ${JSON.stringify(mockPremium)}`);
+    console.log("\nLISTENING NOTES:", listeningNotes || "Compare rich vs basic for warmth, pacing, and character.");
+
+    if (doWrite) {
+      fs.writeFileSync(path.join(outputsDir, `${num}-${id}-basic.ssml`), basic);
+      fs.writeFileSync(path.join(outputsDir, `${num}-${id}-free.ssml`), rich);
+      fs.writeFileSync(path.join(outputsDir, `${num}-${id}-report.txt`),
+        `TEXT:\n${text}\n\nRICH:\n${rich}\n\nBASIC:\n${basic}\n\nPREMIUM: ${JSON.stringify(mockPremium)}\n\nNOTES: ${listeningNotes || ""}`);
+    }
+
+    fullReportLines.push(`\n========== ${num}. ${id} [${category || style}] ==========`);
+    fullReportLines.push(`\nTEXT: ${text}\n`);
+    fullReportLines.push(`FREE RICH SSML:\n${rich}\n`);
+    fullReportLines.push(`BASIC SSML:\n${basic}\n`);
+    fullReportLines.push(`MOCK PREMIUM SETTINGS: ${JSON.stringify(mockPremium)}`);
+    fullReportLines.push(`LISTENING NOTES: ${listeningNotes || ""}\n`);
+  });
+
+  console.log("\n" + "=".repeat(78));
+  console.log(`SUMMARY: ${richTriggeredEmotion}/${corpus.length} samples triggered rich emotion styles`);
+  console.log(`         ${dialogueCount} samples got dialogue role attributes`);
+  console.log(`         High-express runs: ${totalExpressBoosts}`);
+  console.log("=".repeat(78));
+
+  if (doWrite) {
+    fs.writeFileSync(path.join(outputsDir, "FULL-REPORT.txt"), fullReportLines.join("\n"));
+    console.log(`\n✅ Wrote FULL-REPORT.txt + per-sample files to ${outputsDir}`);
+  }
+}
+
+run();

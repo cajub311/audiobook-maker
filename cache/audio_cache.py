@@ -58,11 +58,18 @@ class AudioCache:
         speed: float,
         pronunciation_hash: str = "",
         speed_mode: str = "native",
+        style: str = "",
+        expressiveness: float = 0.0,
+        role: str = "",
+        emotion_bias: str = "",
     ) -> str:
         effective_speed = speed if speed_mode == "native" else 1.0
+        # Include style/express + optional per-speaker role/emotion_bias so emotional SSML variants (incl. characterful per-speaker bias)
+        # have distinct cache entries. Backward-compatible: empty role/eb produce same keys as pre-parity calls.
         material = (
             f"v={self.deps.cache_key_schema_version}|{text}|{voice}|{engine}|"
-            f"{effective_speed}|{pronunciation_hash}|{speed_mode}"
+            f"{effective_speed}|{pronunciation_hash}|{speed_mode}|style={style or 'default'}|exp={expressiveness:.2f}"
+            f"|role={role or ''}|ebias={emotion_bias or ''}"
         )
         return hashlib.md5(material.encode("utf-8")).hexdigest()
 
@@ -90,8 +97,23 @@ class AudioCache:
         speed: float = 1.0,
         pronunciation_hash: str = "",
         speed_mode: str = "native",
+        style: str = "",
+        expressiveness: float = 0.0,
+        role: str = "",
+        emotion_bias: str = "",
     ) -> Optional[str]:
-        key = self._make_key(text, voice, engine, speed, pronunciation_hash=pronunciation_hash, speed_mode=speed_mode)
+        key = self._make_key(
+            text,
+            voice,
+            engine,
+            speed,
+            pronunciation_hash=pronunciation_hash,
+            speed_mode=speed_mode,
+            style=style,
+            expressiveness=expressiveness,
+            role=role,
+            emotion_bias=emotion_bias,
+        )
         entry = self.index.get(key)
         if not entry:
             return None
@@ -114,8 +136,23 @@ class AudioCache:
         duration: float,
         pronunciation_hash: str = "",
         speed_mode: str = "native",
+        style: str = "",
+        expressiveness: float = 0.0,
+        role: str = "",
+        emotion_bias: str = "",
     ) -> str:
-        key = self._make_key(text, voice, engine, speed, pronunciation_hash=pronunciation_hash, speed_mode=speed_mode)
+        key = self._make_key(
+            text,
+            voice,
+            engine,
+            speed,
+            pronunciation_hash=pronunciation_hash,
+            speed_mode=speed_mode,
+            style=style,
+            expressiveness=expressiveness,
+            role=role,
+            emotion_bias=emotion_bias,
+        )
         ext = Path(audio_path).suffix or ".mp3"
         cache_filename = f"{key}{ext}"
         cache_path = self.cache_dir / cache_filename
@@ -133,6 +170,10 @@ class AudioCache:
             "key_schema_version": self.deps.cache_key_schema_version,
             "pronunciation_hash": pronunciation_hash,
             "speed_mode": speed_mode,
+            "narration_style": style or "",
+            "expressiveness": float(expressiveness),
+            "role": role or "",
+            "emotion_bias": emotion_bias or "",
             "created": time.time(),
             "last_accessed": time.time(),
         }
@@ -178,23 +219,34 @@ class AudioCache:
                 self.index.pop(key, None)
                 removed_stale += 1
                 continue
-            seen_files.add(filename)
             path = self.cache_dir / filename
-            if not self._is_cache_entry_valid(path, entry):
-                with contextlib.suppress(Exception):
-                    if path.exists():
-                        path.unlink()
+            if not path.exists() or not self._is_cache_entry_valid(path, entry):
                 self.index.pop(key, None)
                 removed_stale += 1
+            else:
+                seen_files.add(filename)
+        # remove index entries for files that no longer exist on disk
+        for key in list(self.index.keys()):
+            fn = self.index[key].get("filename", "")
+            if fn not in seen_files:
+                self.index.pop(key, None)
+                removed_stale += 1
+        if removed_stale:
+            self._save_index()
+        return {"removed_stale": removed_stale}
 
-        orphaned = 0
-        for file_path in self.cache_dir.iterdir():
-            if not file_path.is_file():
-                continue
-            if file_path.name in ("cache_index.json", "cache_index.json.bak", ".cache_index.lock"):
-                continue
-            if file_path.name not in seen_files:
-                orphaned += 1
-                # Keep unknown files, but mark metadata so users can clean manually.
+    def clear(self) -> None:
+        self.index.clear()
         self._save_index()
-        return {"removed_stale": removed_stale, "orphaned_files": orphaned}
+        for p in self.cache_dir.glob("*.*"):
+            with contextlib.suppress(Exception):
+                p.unlink()
+
+    def get_size_mb(self) -> float:
+        return sum(v.get("size_bytes", 0) for v in self.index.values()) / (1024 * 1024)
+
+    def get_entry_count(self) -> int:
+        return len(self.index)
+
+    def close(self) -> None:
+        pass

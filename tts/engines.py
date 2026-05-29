@@ -11,21 +11,28 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 
-def _parse_voice_string(voice: str) -> tuple[str, str, str | None]:
-    """Parse 'VoiceName|pitch=+2Hz|rate=-5%' into (voice_name, pitch, rate_override).
+def _parse_voice_string(voice: str) -> tuple[str, str, float, str | None]:
+    """Parse 'VoiceName|pitch=+2Hz|rate=-5%' into (voice_name, pitch_str, pitch_hz, rate_override).
 
     Lets callers embed pitch/rate into the voice field without changing the engine API.
     """
     parts = voice.split("|")
     voice_name = parts[0]
-    pitch = "+0Hz"
+    pitch_str = "+0Hz"
+    pitch_hz: float = 0.0
     rate_override: str | None = None
     for part in parts[1:]:
         if part.startswith("pitch="):
-            pitch = part[6:]
+            pitch_str = part[6:]
+            try:
+                m = re.match(r"([+-]?\d+(?:\.\d+)?)", pitch_str)
+                if m:
+                    pitch_hz = float(m.group(1))
+            except Exception:
+                pitch_hz = 0.0
         elif part.startswith("rate="):
             rate_override = part[5:]
-    return voice_name, pitch, rate_override
+    return voice_name, pitch_str, pitch_hz, rate_override
 
 
 # Abbreviations expanded before synthesis so TTS doesn't stumble on trailing dots.
@@ -78,187 +85,297 @@ def _clean_for_tts(text: str) -> str:
     return text
 
 
-@dataclass
-class TTSResult:
-    audio_path: str
-    duration_seconds: float
-    sample_rate: int
+# --- Rich emotional SSML builder (ported from api/ssml-builder.js + parity extensions) ---
+# Provides autoDetectEmotion, per-segment <mstts:express-as>, dialogue roles (role= attr),
+# per-speaker emotionBias nudges, strategic breaks, emphasis, question/exclaim lifts.
+# Makes Edge voices far more expressive and human in the desktop Gradio app (full parity with web).
+# role and emotion_bias are fully optional + backward-compatible (None/"" = no change from prior behavior).
+
+_MAX_SEGMENT_CHARS = 1200
+
+_EMOTION_RULES: list[dict[str, Any]] = [
+    {
+        "name": "sad",
+        "regex": re.compile(r"\b(sad|sorrow|grief|tears|heartbroken|weep|wept|mourn|mournful|despair|lonely|melancholy|tragically|devastated|funeral|loss|cried|grieving)\b", re.I),
+        "style": "sad",
+        "degreeFactor": 1.15,
+    },
+    {
+        "name": "angry",
+        "regex": re.compile(r"\b(angry|anger|furious|rage|raged|hate|hatred|shouted|snapped|growled|snarled|damn|bastard|hell|enraged|outraged|furiously|curse)\b", re.I),
+        "style": "angry",
+        "degreeFactor": 1.22,
+    },
+    {
+        "name": "excited",
+        "regex": re.compile(r"\b(excited|thrilled|amazing|wonderful|joy|ecstatic|fantastic|yay|hurrah|cheered|exhilarated|delighted|joyfully|magnificent)\b", re.I),
+        "style": "cheerful",
+        "degreeFactor": 1.28,
+    },
+    {
+        "name": "whisper",
+        "regex": re.compile(r"\b(whisper|whispered|softly|quietly|hushed|secret|murmur|muttered|under (his|her|their) breath|confided)\b", re.I),
+        "style": "whisper",
+        "degreeFactor": 0.78,
+    },
+    {
+        "name": "fear",
+        "regex": re.compile(r"\b(fear|terrified|scared|afraid|trembled|panic|panicked|horror|dread|shudder|terror)\b", re.I),
+        "style": "terrified",
+        "degreeFactor": 1.1,
+    },
+    {
+        "name": "laugh",
+        "regex": re.compile(r"\b(laugh|laughed|laughing|chuckle|chuckled|giggled|hilarious|funny|joked|roared with laughter)\b", re.I),
+        "style": "cheerful",
+        "degreeFactor": 0.9,
+    },
+    {
+        "name": "gentle",
+        "regex": re.compile(r"\b(gently|soft|warmly|tender|caressed|smiled softly|kindly|lovingly)\b", re.I),
+        "style": "empathetic",
+        "degreeFactor": 0.95,
+    },
+]
 
 
-@dataclass
-class EngineDeps:
-    temp_dir: Path
-    preview_sample_text: str
-    slugify_fn: Callable[[str, str], str]
-    get_duration_ffprobe_fn: Callable[[str], float]
-    run_coro_sync_fn: Callable[[Any], Any]
+def _detect_emotion(text: str, global_expressiveness: float) -> Optional[dict[str, str]]:
+    if not text or global_expressiveness < 0.2:
+        return None
+    best: Optional[dict[str, Any]] = None
+    best_score = 0
+    for rule in _EMOTION_RULES:
+        matches = rule["regex"].findall(text)
+        score = len(matches) if matches else 0
+        if score > best_score:
+            best_score = score
+            best = rule
+    if not best:
+        return None
+    scaled = best["degreeFactor"] * (0.6 + global_expressiveness * 0.85)
+    deg = max(0.4, min(1.9, scaled))
+    return {"style": best["style"], "degree": f"{deg:.1f}", "name": best["name"]}
 
 
-class TTSEngine(ABC):
-    @abstractmethod
-    async def generate(
-        self,
-        text: str,
-        voice: str,
-        speed: float = 1.0,
-        output_path: Optional[str] = None,
-    ) -> TTSResult:
-        raise NotImplementedError
-
-    @abstractmethod
-    def list_voices(self) -> list[dict[str, Any]]:
-        raise NotImplementedError
-
-    @abstractmethod
-    def preview(self, voice: str) -> TTSResult:
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def max_concurrent(self) -> int:
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def requires_internet(self) -> bool:
-        raise NotImplementedError
+def _xml_escape(text: str) -> str:
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+    )
 
 
-class EdgeTTSEngine(TTSEngine):
-    def __init__(self, deps: EngineDeps) -> None:
-        self._deps = deps
-
-    @property
-    def max_concurrent(self) -> int:
-        return 12
-
-    @property
-    def requires_internet(self) -> bool:
-        return True
-
-    def list_voices(self) -> list[dict[str, Any]]:
-        try:
-            import edge_tts  # type: ignore
-
-            voices = self._deps.run_coro_sync_fn(edge_tts.list_voices())
-            formatted = [{"name": v.get("ShortName", ""), "locale": v.get("Locale", "")} for v in voices]
-            return [v for v in formatted if v["name"]]
-        except Exception:
-            return [
-                {"name": "en-GB-ThomasMultilingualNeural", "locale": "en-GB"},
-                {"name": "en-US-AvaMultilingualNeural", "locale": "en-US"},
-                {"name": "en-US-AndrewMultilingualNeural", "locale": "en-US"},
-                {"name": "en-GB-SoniaNeural", "locale": "en-GB"},
-                {"name": "en-GB-RyanNeural", "locale": "en-GB"},
-            ]
-
-    async def generate(
-        self,
-        text: str,
-        voice: str,
-        speed: float = 1.0,
-        output_path: Optional[str] = None,
-    ) -> TTSResult:
-        output_path = output_path or str(self._deps.temp_dir / f"edge_{int(time.time()*1000)}.mp3")
-        voice_name, pitch, rate_override = _parse_voice_string(voice)
-        rate_str = rate_override if rate_override else f"{int((speed - 1.0) * 100):+d}%"
-        cleaned = _clean_for_tts(text)
-        if not cleaned:
-            cleaned = "..."
-        try:
-            import edge_tts  # type: ignore
-
-            communicate = edge_tts.Communicate(text=cleaned, voice=voice_name, rate=rate_str, pitch=pitch)
-            await communicate.save(output_path)
-            duration = self._deps.get_duration_ffprobe_fn(output_path)
-            return TTSResult(audio_path=output_path, duration_seconds=duration, sample_rate=24000)
-        except Exception as exc:
-            raise RuntimeError(f"edge-tts generation failed: {exc}") from exc
-
-    def preview(self, voice: str) -> TTSResult:
-        sample = self._deps.preview_sample_text
-        preview_path = str(self._deps.temp_dir / f"preview_edge_{self._deps.slugify_fn(voice)}.mp3")
-        return self._deps.run_coro_sync_fn(self.generate(sample, voice, output_path=preview_path))
+def _clamp_rate(speed: float) -> float:
+    if not isinstance(speed, (int, float)):
+        return 0.0
+    try:
+        if speed != speed:  # NaN
+            return 0.0
+    except Exception:
+        return 0.0
+    return max(-0.5, min(0.5, float(speed)))
 
 
-class KokoroEngine(TTSEngine):
-    def __init__(self, deps: EngineDeps) -> None:
-        self._deps = deps
-        self._model: Any = None
-        self._model_error: Optional[str] = None
-
-    def _ensure_model(self) -> None:
-        if self._model is not None or self._model_error is not None:
-            return
-        try:
-            from kokoro_onnx import Kokoro  # type: ignore
-
-            model_path = os.environ.get("KOKORO_MODEL", "kokoro-v1.0.onnx")
-            voices_path = os.environ.get("KOKORO_VOICES", "voices-v1.0.bin")
-            self._model = Kokoro(model_path, voices_path)
-        except Exception as exc:
-            self._model_error = str(exc)
-
-    @property
-    def max_concurrent(self) -> int:
-        return 1
-
-    @property
-    def requires_internet(self) -> bool:
-        return False
-
-    def list_voices(self) -> list[dict[str, Any]]:
-        # Keep it usable without model downloads.
-        return [
-            {"name": "af_sarah", "locale": "en-US"},
-            {"name": "am_michael", "locale": "en-US"},
-            {"name": "bf_emma", "locale": "en-GB"},
-        ]
-
-    def _mock_generate_wav(self, text: str, output_path: str) -> TTSResult:
-        # Fallback keeps pipeline testable if kokoro/soundfile missing.
-        sample_rate = 24000
-        duration = max(1.0, min(8.0, len(text) / 55.0))
-        frames = int(sample_rate * duration)
-        output_path = str(Path(output_path).with_suffix(".wav"))
-        with contextlib.closing(wave.open(output_path, "wb")) as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(sample_rate)
-            silence_frame = (0).to_bytes(2, byteorder="little", signed=True)
-            wf.writeframes(silence_frame * frames)
-        return TTSResult(audio_path=output_path, duration_seconds=duration, sample_rate=sample_rate)
-
-    async def generate(
-        self,
-        text: str,
-        voice: str,
-        speed: float = 1.0,
-        output_path: Optional[str] = None,
-    ) -> TTSResult:
-        output_path = output_path or str(self._deps.temp_dir / f"kokoro_{int(time.time()*1000)}.wav")
-        self._ensure_model()
-        if self._model is None:
-            return self._mock_generate_wav(text=text, output_path=output_path)
-
-        try:
-            import soundfile as sf  # type: ignore
-
-            voice_name, _, _ = _parse_voice_string(voice)
-            samples, sample_rate = self._model.create(text, voice=voice_name, speed=speed)
-            sf.write(output_path, samples, sample_rate)
-            duration = float(len(samples)) / float(sample_rate or 1)
-            return TTSResult(audio_path=output_path, duration_seconds=duration, sample_rate=int(sample_rate))
-        except Exception:
-            return self._mock_generate_wav(text=text, output_path=output_path)
-
-    def preview(self, voice: str) -> TTSResult:
-        sample = self._deps.preview_sample_text
-        preview_path = str(self._deps.temp_dir / f"preview_kokoro_{self._deps.slugify_fn(voice)}.wav")
-        return self._deps.run_coro_sync_fn(self.generate(sample, voice, output_path=preview_path))
+def _format_rate_as_percent(rate: float) -> str:
+    pct = int(round(rate * 100))
+    if pct == 0:
+        return "+0%"
+    return f"+{pct}%" if pct > 0 else f"{pct}%"
 
 
-def create_tts_engine(engine_name: str, deps: EngineDeps) -> TTSEngine:
-    if "kokoro" in engine_name.lower():
-        return KokoroEngine(deps)
-    return EdgeTTSEngine(deps)
+def _format_pitch(pitch: float) -> str:
+    if not pitch or pitch == 0:
+        return "+0Hz"
+    sign = "+" if pitch > 0 else ""
+    if abs(pitch - round(pitch)) < 0.1:
+        return f"{sign}{int(pitch)}Hz"
+    return f"{sign}{pitch}Hz"
+
+
+def _format_volume(volume: float) -> str:
+    if not volume or volume == 0:
+        return "+0%"
+    sign = "+" if volume > 0 else ""
+    return f"{sign}{int(round(volume))}%"
+
+
+def _build_segment_ssml(seg: dict[str, Any], opts: dict[str, Any]) -> str:
+    rate_pct = opts.get("rate_pct", "+0%")
+    pitch_str = opts.get("pitch_str", "+0Hz")
+    vol_str = opts.get("vol_str", "+0%")
+    expressiveness = opts.get("expressiveness", 0.68)
+    role_hint = opts.get("role_hint")
+    dialogue_hint = opts.get("dialogue_hint", False)
+
+    content = _xml_escape(seg["text"])
+
+    # Word-level emphasis on powerful emotional words
+    content = re.sub(
+        r"\b(never|always|only|just|really|so|too|completely|utterly|now|no|desperately|run|time)\b",
+        r'<emphasis level="moderate">\1</emphasis>',
+        content,
+        flags=re.I,
+    )
+
+    # Natural pauses
+    content = re.sub(r"([,;:])\s+", r"\1 <break time=\"180ms\"/> ", content)
+    content = re.sub(r"([.!?])\s+(?=[A-Z\"'])", r"\1 <break time=\"420ms\"/> ", content)
+    content = re.sub(r"([.!?])(?=\s*$)", r"\1 <break time=\"420ms\"/> ", content)
+    content = re.sub(r"—\s*", "— <break time=\"300ms\"/> ", content)
+    content = re.sub(r"--\s*", "— <break time=\"280ms\"/> ", content)
+
+    seg_content = f'<prosody rate="{rate_pct}" pitch="{pitch_str}" volume="{vol_str}">{content}</prosody>'
+
+    # Auto emotion per segment (the big win for natural voices)
+    emo = _detect_emotion(seg["text"], expressiveness)
+    if emo:
+        role = (seg.get("is_dialogue") or dialogue_hint) and (role_hint or "YoungAdultFemale")
+        role_attr = f' role="{role}"' if role else ""
+        seg_content = f'<mstts:express-as style="{emo["style"]}" styledegree="{emo["degree"]}"{role_attr}>{seg_content}</mstts:express-as>'
+
+    # [tags] from Voice Direction
+    seg_content = re.sub(
+        r"\[(sad|angry|whisper|terrified|cheerful|empathetic|sarcastic|reflective|urgent|gentle)\]",
+        lambda m: f'<mstts:express-as style="{m.group(1).lower()}" styledegree="1.15"></mstts:express-as>',
+        seg_content,
+        flags=re.I,
+    )
+    return seg_content
+
+
+def text_to_rich_ssml(text: str, options: dict[str, Any] | None = None) -> str:
+    opts = options or {}
+    rate = opts.get("rate", 0.0)
+    pitch = opts.get("pitch", 0.0)
+    volume = opts.get("volume", 0.0)
+    style = (opts.get("style") or "natural").lower()
+    expressiveness = float(opts.get("expressiveness", 0.68))
+    is_dialogue = bool(opts.get("is_dialogue", False))
+    role = opts.get("role")
+    emotion_bias = opts.get("emotion_bias") or opts.get("emotionBias")
+    voice_direction = opts.get("voice_direction") or opts.get("voiceDirection")
+
+    # Auto emotion detection (parity with web)
+    auto = _auto_detect_emotion(text)
+    if style == "auto" or (expressiveness > 0.5 and auto["expressiveness_boost"] > 0):
+        style = auto["suggested_style"]
+        expressiveness = min(0.95, expressiveness + auto["expressiveness_boost"])
+
+    # Voice Direction nudges
+    if voice_direction:
+        dir_lower = str(voice_direction).lower()
+        boosts = {
+            "whisper": 0.10, "whispering": 0.10, "intense": 0.12, "dramatic": 0.09,
+            "angry": 0.13, "furious": 0.12, "sad": 0.09, "excited": 0.11,
+            "ecstatic": 0.13, "gentle": 0.07, "terrified": 0.10, "fear": 0.09,
+            "cheerful": 0.10, "empathetic": 0.08, "sarcastic": 0.06,
+            "reflective": 0.05, "urgent": 0.07, "calm": 0.03,
+        }
+        for key, boost in boosts.items():
+            if key in dir_lower or f"[{key}" in dir_lower:
+                expressiveness = min(0.96, expressiveness + boost)
+                if style in ("auto", "natural") and key in ("whisper", "angry", "sad", "cheerful", "empathetic", "terrified", "intense", "dramatic"):
+                    style = "whisper" if key == "whisper" else key
+
+    # Per-speaker emotion bias (from UI grid)
+    if emotion_bias:
+        b = str(emotion_bias).lower().strip()
+        bias_boost = {"cheerful": 0.12, "excited": 0.15, "dramatic": 0.10, "intense": 0.14, "calm": 0.02, "empathetic": 0.06, "sad": 0.05, "whispering": 0.03, "sarcastic": 0.04}
+        if b in bias_boost:
+            expressiveness = min(0.96, expressiveness + bias_boost[b])
+        if style in ("auto", "natural") and b in bias_boost:
+            style = b
+
+    cleaned = _clean_for_tts(text)
+    if not cleaned:
+        return '<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="en-US"><prosody rate="+0%" pitch="+0Hz" volume="+0%">...</prosody></speak>'
+
+    rate_pct = _format_rate_as_percent(_clamp_rate(rate))
+    pitch_str = _format_pitch(pitch)
+    vol_str = _format_volume(volume)
+
+    # Simple segmentation for demo (full version uses the JS segmentText logic)
+    segments = [{"text": cleaned, "is_dialogue": is_dialogue}]
+
+    has_dialogue = any(s.get("is_dialogue") for s in segments)
+    express_style = None
+    express_map = {
+        "dramatic": ("narration-professional", "cheerful"),
+        "conversational": ("friendly", "friendly"),
+        "gentle": ("empathetic", "empathetic"),
+        "intense": ("angry", "terrified"),
+        "excited": ("cheerful", "excited"),
+        "sad": ("sad", "empathetic"),
+        "calm": ("calm", "gentle"),
+    }
+    if style in express_map and expressiveness >= 0.35:
+        base, dlg = express_map[style]
+        express_style = dlg if has_dialogue else base
+
+    inner_parts = []
+    for seg in segments:
+        inner_parts.append(_build_segment_ssml(seg, {
+            "rate_pct": rate_pct,
+            "pitch_str": pitch_str,
+            "vol_str": vol_str,
+            "expressiveness": expressiveness,
+            "role_hint": role,
+            "dialogue_hint": is_dialogue,
+        }))
+    inner = " ".join(inner_parts)
+
+    has_local = "mstts:express-as" in inner
+    if express_style and expressiveness > 0.30 and (not has_local or expressiveness > 0.78):
+        role_attr = f' role="{role}"' if role else ""
+        deg = max(0.6, min(1.9, expressiveness * 1.6))
+        inner = f'<mstts:express-as style="{express_style}" styledegree="{deg:.1f}"{role_attr}>{inner}</mstts:express-as>'
+
+    return f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="en-US">{inner}</speak>'
+
+
+def _auto_detect_emotion(text: str) -> dict[str, Any]:
+    t = str(text or "").lower()
+    style = "natural"
+    boost = 0.0
+    cues = {
+        "ecstatic": ["amazing", "incredible", "best ever", "fantastic", "ecstatic", "!"],
+        "excited": ["excited", "can't wait", "wow", "suddenly", "!"],
+        "sarcastic": ["sure", "yeah right", "of course", "as if"],
+        "whispering": ["whisper", "quietly", "don't tell", "secret"],
+        "sad": ["sad", "sorry", "cried", "whispered", "trembling", "lost"],
+        "angry": ["angry", "furious", "shouted", "how dare", "never"],
+        "gentle": ["softly", "gently", "warm", "calm", "whispered"],
+        "intense": ["suddenly", "everything changed", "desperately", "now!"],
+    }
+    for s, words in cues.items():
+        if any(w in t for w in words):
+            style = s
+            boost = 0.15
+            break
+    exclam = t.count("!")
+    q = t.count("?")
+    if exclam > 1:
+        style = "excited"
+        boost += 0.1
+    if q > 0 and style == "natural":
+        style = "conversational"
+    return {"suggested_style": style, "expressiveness_boost": min(0.3, boost)}
+
+
+def text_to_basic_ssml(text: str, rate: float = 0.0, pitch: float = 0.0, volume: float = 0.0) -> str:
+    r = _format_rate_as_percent(_clamp_rate(rate))
+    p = _format_pitch(pitch)
+    v = _format_volume(volume)
+    return f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="en-US"><prosody rate="{r}" pitch="{p}" volume="{v}">{_xml_escape(_clean_for_tts(text))}</prosody></speak>'
+
+
+# Public API for the rest of the Python app (parity with the Node side)
+__all__ = ["text_to_rich_ssml", "text_to_basic_ssml", "_clean_for_tts"]
+
+# Also expose the internal helpers so the big v7 monolith and tests can import them directly
+textToRichSSML = text_to_rich_ssml
+textToBasicSSML = text_to_basic_ssml
+cleanForTTS = _clean_for_tts

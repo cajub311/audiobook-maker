@@ -1,124 +1,90 @@
-"use strict";
-
-/**
- * Emotional Test Corpus for voice tuning.
- * 13 short paragraphs designed to exercise:
- * - Dialogue detection + role=YoungAdultFemale
- * - Questions (? → pitch lift)
- * - Exclamations (! → volume + emphasis + pitch)
- * - Auto emotion detection (sad/angry/excited/whisper/etc via keywords + cues)
- * - EMOTION_RULES (mstts:express-as)
- * - Strategic breaks (commas, em-dashes, ellipses, sentence ends)
- * - Emphasis on loaded words
- * - Paralinguistic hints (sighed, whispered, etc.)
- * - Mixed emotions in one passage
- *
- * Each item is short on purpose so full SSML is easy to inspect + synthesize.
- */
-
 module.exports = [
   {
     id: "sad-01",
     category: "sad",
     text: "I can't believe he's really gone. The house feels so empty without his laughter echoing through the halls.",
     defaultStyle: "sad",
-    defaultExpress: 0.72,
+    defaultExpress: 0.78,
     listeningNotes: "Rich should wrap with sad express-as + lowered energy. Listen for slower pacing and gentle emphasis on 'empty' and 'laughter'. Basic is flat and faster. Good test for melancholy timbre on Edge voices like Jenny or Sonia."
   },
   {
     id: "angry-01",
     category: "angry",
-    text: "How dare you speak to me like that! Get out of my house this instant!",
+    text: 'How dare you speak to me like that! Get out of my house this instant!',
     defaultStyle: "angry",
-    defaultExpress: 0.78,
+    defaultExpress: 0.82,
     listeningNotes: "Strong angry express-as expected on the shout. Exclamation prosody should raise pitch+volume+emphasis. Dialogue segments get YoungAdultFemale role. Compare how basic lacks the style wrapper entirely — sounds like plain reading."
   },
   {
     id: "excited-01",
     category: "excited",
-    text: "Can you believe it? We actually won! This is the most amazing day of my life!",
+    text: "This is the most incredible thing that has ever happened to me! I can't wait to tell everyone!",
     defaultStyle: "excited",
-    defaultExpress: 0.82,
-    listeningNotes: "Multiple ! and 'amazing' should trigger cheerful/excited express-as + lifted prosody on exclamations and the question. High energy, faster rate on peaks. Listen for the joy vs the flat delivery in basic path."
+    defaultExpress: 0.85,
+    listeningNotes: "High cheerful/excited wrap + exclamation lifts. Energy and brightness should jump. Basic stays monotone."
   },
   {
     id: "sarcastic-01",
     category: "sarcastic",
-    text: "Oh sure, because that's exactly what I wanted to hear today. Perfect. Just perfect.",
-    defaultStyle: "auto",
-    defaultExpress: 0.65,
-    listeningNotes: "Auto detector may pick sarcastic from 'sure' + 'of course' cues. Rich adds moderate express + ironic pauses via breaks. The repeated 'Perfect' may get emphasis. Basic sounds sincere and even — the opposite of intent."
+    text: "Oh sure, because that always works out perfectly. Yeah right.",
+    defaultStyle: "sarcastic",
+    defaultExpress: 0.72,
+    listeningNotes: "Sarcastic style + dry delivery. Slight downward pitch on the second sentence. Basic sounds sincere."
   },
   {
     id: "whisper-01",
     category: "whisper",
-    text: "Don't tell anyone this, but I think I saw something move in the shadows just now.",
-    defaultStyle: "auto",
-    defaultExpress: 0.58,
-    listeningNotes: "Whisper cues ('whisper' not present but 'Don't tell anyone' + secret feel) should produce whisper or empathetic style + reduced degree. Softer volume, extra micro-breaks. Critical test: does the voice actually drop to a hushed delivery?"
-  },
-  {
-    id: "dramatic-01",
-    category: "dramatic",
-    text: "The old wizard raised his staff high. \"You shall not pass!\" he cried, his voice booming through the abyss. Lightning cracked and the bridge began to crumble.",
-    defaultStyle: "dramatic",
-    defaultExpress: 0.80,
-    listeningNotes: "Dialogue trigger + dramatic style = narration-professional wrapper + cheerful/excited on the shouted line + role attribute. Strong breaks around em-dashes/periods. Listen for theatrical weight and distinct 'character voice' shift on the quote. One of the best showcases of layered richness."
+    text: "Don't tell anyone... but I think I know who did it. It was him, whispered under his breath.",
+    defaultStyle: "whisper",
+    defaultExpress: 0.65,
+    listeningNotes: "whisper express-as + very low volume/intensity. The 'whispered' cue should trigger soft delivery. Basic is normal volume."
   },
   {
     id: "fear-01",
     category: "fear",
-    text: "Is someone there? I... I heard footsteps. Please... don't come any closer.",
-    defaultStyle: "auto",
-    defaultExpress: 0.70,
-    listeningNotes: "Fear keywords + questions + ellipses + pleading should activate terrified style + reduced emphasis on 'please'. Trembling effect via breaks and prosody. Question gets the +7Hz lift. Excellent for testing scared delivery without over-acting."
+    text: "I was terrified. My hands were shaking and I could barely breathe as the footsteps got closer.",
+    defaultStyle: "terrified",
+    defaultExpress: 0.78,
+    listeningNotes: "terrified style with trembling prosody. Faster breathing implied by short phrases + breaks."
+  },
+  {
+    id: "dramatic-01",
+    category: "dramatic",
+    text: "Suddenly — everything changed. The letter fell from her hands and the room went completely silent.",
+    defaultStyle: "dramatic",
+    defaultExpress: 0.80,
+    listeningNotes: "narration-professional + dramatic emphasis on 'Suddenly'. Long em-dash pause should be audible. Strong test of the break logic."
   },
   {
     id: "gentle-sad-01",
-    category: "gentle + sad",
-    text: "She smiled softly and touched his cheek. \"I will always remember you,\" she whispered, her voice full of gentle sadness. The rain fell like quiet tears.",
+    category: "gentle",
+    text: "She smiled softly and took his hand. 'It's going to be okay,' she said gently.",
     defaultStyle: "gentle",
-    defaultExpress: 0.65,
-    listeningNotes: "Gentle + sad cues compete; 'whispered' + 'softly' + 'sadness' should produce empathetic/sad wrappers + dialogue role. Very important for tender scenes. Rich version feels human and caring; basic is clinical."
-  },
-  {
-    id: "excited-multi-01",
-    category: "excited",
-    text: "Yes! Yes! We did it! I knew we could! This changes everything for us!",
-    defaultStyle: "excited",
-    defaultExpress: 0.85,
-    listeningNotes: "Rapid exclamations test how well the builder stacks emphasis + cheerful express-as + exclamation prosody without sounding cartoonish. High expressiveness here. Check that rate doesn't go too wild."
-  },
-  {
-    id: "angry-question-01",
-    category: "angry",
-    text: "What were you thinking when you did that? Did you honestly believe no one would ever find out?",
-    defaultStyle: "angry",
-    defaultExpress: 0.75,
-    listeningNotes: "Two questions + angry keywords. Should get angry express-as around the whole + question-specific pitch lifts. Feels accusatory and heated. Basic path loses all the interrogative lift and rage coloring."
+    defaultExpress: 0.70,
+    listeningNotes: "empathetic/gentle wrap. Warm, reassuring tone on the dialogue line. Role attribute should make it feel like a distinct caring character."
   },
   {
     id: "heartbreak-01",
-    category: "sad + gentle",
-    text: "I thought we had more time. Please... just stay a little longer. I don't know how to do this without you.",
+    category: "sad",
+    text: "After everything we promised each other? After all those years? She had never felt so completely and utterly alone.",
     defaultStyle: "sad",
-    defaultExpress: 0.78,
-    listeningNotes: "Heartbreak + pleading + ellipses. Rich should deliver quiet devastation (sad + empathetic) with very human micro-pauses. One of the most moving samples when the voice actually sounds like it cares."
+    defaultExpress: 0.82,
+    listeningNotes: "Multiple sad cues + question + 'utterly alone'. Should get the strongest sad express-as + slow pacing. One of the best diagnostic samples."
   },
   {
     id: "sarcastic-whisper-01",
-    category: "sarcastic + whisper",
-    text: "Oh, you're *definitely* the expert here. Go on then... tell us all how it's done.",
-    defaultStyle: "sarcastic",
-    defaultExpress: 0.70,
-    listeningNotes: "Mixed tone (sarcastic delivery of a whisper challenge). Good test of competing rules + emphasis on 'definitely' and 'expert'. Rich should feel cutting but hushed."
+    category: "sarcastic",
+    text: "[whisper] Yeah... because trusting you worked out so well last time.",
+    defaultStyle: "whisper",
+    defaultExpress: 0.75,
+    listeningNotes: "Inline [whisper] tag + sarcastic tone. The tag parser should turn it into an express-as even inside the segment."
   },
   {
     id: "dramatic-climax-01",
-    category: "dramatic + fear + angry",
-    text: "No — listen to me! If we turn back now, everything we fought for dies here. Do you understand? We finish this tonight!",
+    category: "dramatic",
+    text: "And in that moment — the single most devastating moment of her entire life — she finally understood.",
     defaultStyle: "dramatic",
-    defaultExpress: 0.88,
-    listeningNotes: "Multi-sentence emotional arc (fear → determination → rallying cry). Rich SSML should shift styles mid-paragraph. The 'No' + em-dash + final ! is a killer test for dynamic delivery."
-  }
+    defaultExpress: 0.85,
+    listeningNotes: "Heavy em-dashes + 'devastating' + 'finally understood'. Long pauses + sad/dramatic layering. Peak emotional test."
+  },
 ];
