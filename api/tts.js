@@ -2,6 +2,14 @@
 
 const { MsEdgeTTS, OUTPUT_FORMAT } = require("msedge-tts");
 const { DEFAULT_VOICE, isValidVoiceId } = require("./_voices");
+const {
+  textToRichSSML,
+  cleanForTTS,
+  xmlEscape: builderXmlEscape,
+  clampRate: builderClampRate,
+  formatRateAsPercent: builderFormatRate,
+  autoDetectEmotion,
+} = require("./ssml-builder");
 
 const MAX_CHARS = 8000;
 const MIN_CHARS = 1;
@@ -42,9 +50,47 @@ function formatRateAsPercent(rate) {
   return pct > 0 ? `+${pct}%` : `${pct}%`;
 }
 
-async function synthesizeToBuffer(voice, text, rate, pitch, volume, format) {
+async function synthesizeToBuffer(voice, text, rate, pitch, volume, format, richOpts = {}) {
   const tts = new MsEdgeTTS();
   await tts.setMetadata(voice, format);
+
+  const { useRichSSML = true, style = "natural", expressiveness = 0.68, isDialogue = false, role = null, emotionBias = null, voiceDirection = null } = richOpts;
+
+  if (useRichSSML) {
+    // Rich emotional SSML path — the key to non-robotic voices
+    // Pass raw (unescaped) text; builder handles cleaning + escaping of spoken content only.
+    const ssml = textToRichSSML(text, {
+      rate,
+      pitch,
+      volume,
+      style,
+      expressiveness,
+      isDialogue,
+      role,
+      emotionBias,
+      voiceDirection,
+    });
+    const { audioStream } = await tts.rawToStream(ssml);
+    return await new Promise((resolve, reject) => {
+      const chunks = [];
+      let settled = false;
+      const done = (err, result) => {
+        if (settled) return;
+        settled = true;
+        try { tts.close(); } catch (_e) { /* ignore */ }
+        if (err) reject(err); else resolve(result);
+      };
+      audioStream.on("data", (chunk) => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
+      audioStream.on("end", () => done(null, Buffer.concat(chunks)));
+      audioStream.on("close", () => done(null, Buffer.concat(chunks)));
+      audioStream.on("error", (err) => done(err));
+      setTimeout(() => done(new Error("TTS synthesis timed out after 25s")), 25000).unref?.();
+    });
+  }
+
+  // Legacy simple prosody path (full backward compat)
   const prosody = {};
   if (rate && rate !== 0) prosody.rate = formatRateAsPercent(rate);
   if (pitch && pitch !== 0) prosody.pitch = `${pitch > 0 ? "+" : ""}${pitch}Hz`;
@@ -113,10 +159,52 @@ module.exports = async function handler(req, res) {
       ? OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3
       : OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3;
 
-  const escapedText = xmlEscape(rawText);
+  // New rich controls (default ON — this is the audible improvement)
+  const style = String(body.style || body.narrationStyle || "natural").toLowerCase();
+  const expressiveness = Number.isFinite(Number(body.expressiveness))
+    ? Math.max(0, Math.min(1, Number(body.expressiveness)))
+    : 0.68;
+  const useRichSSML = body.useRichSSML !== false; // default true for human emotion
+  const isDialogue = !!body.isDialogue; // per-chunk hint from multi-voice frontend
+  const role = body.role ? String(body.role) : null;
+  const emotionBias = body.emotionBias ? String(body.emotionBias) : null;
+  const voiceDirection = body.voiceDirection ? String(body.voiceDirection) : null;
+
+  // DEBUG: return the rich generated SSML instead of audio (for "Show generated SSML" checkbox + inspection)
+  const wantsDebugSSML = !!(body.debugSSML || body.returnSSML || body.debug === "ssml");
+  if (wantsDebugSSML) {
+    const ssml = useRichSSML
+      ? textToRichSSML(rawText, { rate, pitch, volume, style, expressiveness, isDialogue, role, emotionBias, voiceDirection })
+      : `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="en-US"><prosody rate="${formatRateAsPercent(rate)}" pitch="${pitch}Hz" volume="${volume}%">${xmlEscape(rawText)}</prosody></speak>`;
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.status(200).json({
+      ssml,
+      voice,
+      style,
+      expressiveness,
+      isDialogue,
+      role,
+      emotionBias,
+      voiceDirection,
+      useRichSSML,
+      charCount: rawText.length,
+    });
+    return;
+  }
+
+  // For legacy/simple path we still escape; rich path uses builder (better cleaning + targeted escaping)
+  const legacyText = xmlEscape(rawText);
 
   try {
-    const buffer = await synthesizeToBuffer(voice, escapedText, rate, pitch, volume, format);
+    const buffer = await synthesizeToBuffer(voice, useRichSSML ? rawText : legacyText, rate, pitch, volume, format, {
+      useRichSSML,
+      style,
+      expressiveness,
+      isDialogue,
+      role,
+      emotionBias,
+      voiceDirection,
+    });
     if (!buffer || buffer.length === 0) {
       res.setHeader("Content-Type", "application/json; charset=utf-8");
       res.status(502).json({ status: "error", message: "Empty audio response from TTS upstream." });
@@ -145,3 +233,8 @@ module.exports.xmlEscape = xmlEscape;
 module.exports.clampRate = clampRate;
 module.exports.formatRateAsPercent = formatRateAsPercent;
 module.exports.MAX_CHARS = MAX_CHARS;
+
+module.exports.textToRichSSML = textToRichSSML;
+module.exports.cleanForTTS = cleanForTTS;
+module.exports.autoDetectEmotion = autoDetectEmotion;
+module.exports.builder = require("./ssml-builder");
