@@ -1,8 +1,69 @@
 "use strict";
 
 // SSML builder with rich emotion: autoDetectEmotion, per-segment <mstts:express-as>,
-// dialogue roles, prosody, emphasis, and [tag] author overrides (from Voice Direction or inline in text).
+// prosody, emphasis, and [tag] author overrides (from Voice Direction or inline in text).
 // Used by both the free Edge path and exposed for Python parity / tests.
+//
+// VOICE-AWARE: Microsoft Edge's free endpoint only honors <mstts:express-as> on a
+// specific subset of voices, and each supporting voice supports only a specific set
+// of styles. We consult api/_voices.js per-voice capability descriptors so we ONLY
+// ever emit a style the current voice actually supports. For voices that support no
+// styles (e.g. the flagship Multilingual voices), we emit NO express-as at all and
+// rely purely on prosody + <break> + <emphasis>, which work on every voice. The
+// `role` attribute is only supported on a tiny set of voices and degrades the
+// standard en-US voices, so we never emit it.
+
+const { voiceSupportsStyle, getVoiceMeta } = require("./_voices");
+
+// Map a desired emotion style to the nearest style the CURRENT voice supports.
+// Returns a supported style string, or null if the voice supports none / no good match.
+function resolveStyleForVoice(voice, desired) {
+  if (!voice) return null; // unknown/missing voice => safe prosody-only path
+  const meta = getVoiceMeta(voice);
+  if (!meta || !meta.supportsExpressAs || !meta.styles || meta.styles.length === 0) {
+    return null;
+  }
+  if (!desired) return null;
+  let want = String(desired).toLowerCase();
+
+  // Normalize a few aliases to canonical style names.
+  if (want === "whisper") want = "whispering";
+  if (want === "natural" || want === "conversational") return null;
+
+  // Exact support wins.
+  if (voiceSupportsStyle(voice, want)) return want;
+
+  // Otherwise map to the closest supported style via ordered fallback chains.
+  const FALLBACKS = {
+    empathetic: ["empathetic", "sad", "friendly", "gentle", "calm"],
+    gentle: ["empathetic", "friendly", "calm", "hopeful"],
+    calm: ["empathetic", "friendly", "hopeful"],
+    "narration-professional": ["narration-professional", "friendly", "chat", "calm"],
+    narration: ["narration-professional", "friendly", "chat"],
+    intense: ["angry", "shouting", "terrified"],
+    dramatic: ["narration-professional", "sad", "friendly", "cheerful"],
+    excited: ["excited", "cheerful", "hopeful"],
+    cheerful: ["cheerful", "excited", "friendly", "hopeful"],
+    sad: ["sad", "empathetic", "unfriendly"],
+    angry: ["angry", "shouting", "unfriendly"],
+    terrified: ["terrified", "shouting", "sad"],
+    whispering: ["whispering"], // never substitute a loud style for a whisper
+    shouting: ["shouting", "angry", "excited"],
+    friendly: ["friendly", "cheerful", "hopeful"],
+    hopeful: ["hopeful", "cheerful", "friendly"],
+    sarcastic: ["unfriendly", "friendly"],
+    reflective: ["empathetic", "friendly", "calm"],
+    urgent: ["shouting", "angry", "excited"],
+  };
+
+  const chain = FALLBACKS[want];
+  if (chain) {
+    for (const candidate of chain) {
+      if (voiceSupportsStyle(voice, candidate)) return candidate;
+    }
+  }
+  return null;
+}
 
 const EMOTION_RULES = [
   {
@@ -114,6 +175,22 @@ function formatVolume(volume) {
   return `${volume > 0 ? "+" : ""}${volume}%`;
 }
 
+// Nudge an already-formatted rate percent string (e.g. "+0%", "-10%") by `deltaPct`.
+function nudgeRatePct(ratePct, deltaPct) {
+  const n = parseInt(String(ratePct).replace("%", ""), 10);
+  const base = Number.isFinite(n) ? n : 0;
+  const next = base + deltaPct;
+  return next >= 0 ? `+${next}%` : `${next}%`;
+}
+
+// Nudge an already-formatted pitch Hz string (e.g. "+0Hz", "-5Hz") by `deltaHz`.
+function nudgePitchHz(pitchStr, deltaHz) {
+  const n = parseInt(String(pitchStr).replace("Hz", ""), 10);
+  const base = Number.isFinite(n) ? n : 0;
+  const next = base + deltaHz;
+  return next >= 0 ? `+${next}Hz` : `${next}Hz`;
+}
+
 // Lightweight dialogue segmenter (inspired by web/text.js + nlp/dialogue.py but self-contained for server)
 const QUOTE_PATTERNS = [
   // Robust: allow inner apostrophes, common contractions, and most punctuation inside quotes
@@ -218,16 +295,21 @@ function pickExpressStyle(style, hasDialogue, expressiveness) {
   return chosen;
 }
 
-function getDialogueRole(isDialogue, roleHint) {
-  if (roleHint) return roleHint;
-  if (!isDialogue) return null;
-  // Reasonable defaults for quoted speech differentiation (research-backed for naturalness)
-  return "YoungAdultFemale";
-}
-
+// NOTE: `role` is only supported on a tiny set of voices and degrades the standard
+// en-US voices, so we never emit it. Dialogue is differentiated naturally via a
+// slightly higher pitch/rate prosody and a brief opening beat instead.
 function buildSegmentSSML(seg, opts = {}) {
-  const { ratePct = "+0%", pitchStr = "+0Hz", volStr = "+0%", expressiveness = 0.68, roleHint = null, dialogueHint = false } = opts;
+  const {
+    ratePct = "+0%",
+    pitchStr = "+0Hz",
+    volStr = "+0%",
+    expressiveness = 0.68,
+    dialogueHint = false,
+    voice = null,
+  } = opts;
   let content = xmlEscape(seg.text);
+
+  const isDialogueSeg = seg.isDialogue || dialogueHint;
 
   // Gentle word-level emphasis on very short powerful words in emotional contexts
   // Do this FIRST on plain text so later inserted <break time="..."> attributes are not corrupted.
@@ -242,24 +324,35 @@ function buildSegmentSSML(seg, opts = {}) {
   content = content.replace(/—\s*/g, '— <break time="300ms"/> ');
   content = content.replace(/--\s*/g, '— <break time="280ms"/> ');
 
-  let segContent = `<prosody rate="${ratePct}" pitch="${pitchStr}" volume="${volStr}">${content}</prosody>`;
+  // Natural dialogue differentiation (works on EVERY voice): a tiny opening beat plus
+  // a hair more pitch/rate so quoted speech feels distinct from narration without role=.
+  if (isDialogueSeg) {
+    content = '<break time="120ms"/> ' + content;
+  }
+  const segRate = isDialogueSeg ? nudgeRatePct(ratePct, 2) : ratePct;
+  const segPitch = isDialogueSeg ? nudgePitchHz(pitchStr, 2) : pitchStr;
+
+  let segContent = `<prosody rate="${segRate}" pitch="${segPitch}" volume="${volStr}">${content}</prosody>`;
 
   // AUTO EMOTION DETECTION per segment (the major upgrade for free voices)
   // Detects sad/angry/excited etc words and wraps the (already prosody-enhanced) content
-  // with its own <mstts:express-as> so emotion is localized and powerful.
+  // with its own <mstts:express-as> — but ONLY with a style the current voice supports.
   const emo = detectEmotion(seg.text, expressiveness);
   if (emo) {
-    const role = (seg.isDialogue || dialogueHint) ? getDialogueRole(true, roleHint) : null;
-    const roleAttr = role ? ` role="${role}"` : "";
-    segContent = `<mstts:express-as style="${emo.style}" styledegree="${emo.degree}"${roleAttr}>${segContent}</mstts:express-as>`;
+    const supported = resolveStyleForVoice(voice, emo.style);
+    if (supported) {
+      segContent = `<mstts:express-as style="${supported}" styledegree="${emo.degree}">${segContent}</mstts:express-as>`;
+    }
   }
 
   // Consume any remaining [tags] (from Voice Direction or author input) as extra local express-as
-  // (research pattern for author control without breaking the auto engine)
-  // Strip the tag text after wrapping so it doesn't appear in the spoken output.
+  // (research pattern for author control without breaking the auto engine).
+  // Strip the tag text so it doesn't appear in the spoken output. Only emit express-as
+  // when the current voice actually supports the (mapped) style; otherwise just remove the tag.
   segContent = segContent.replace(/\[(sad|angry|whisper|terrified|cheerful|empathetic|sarcastic|reflective|urgent|gentle)\]/gi, (m, tag) => {
-    const style = tag.toLowerCase();
-    return `<mstts:express-as style="${style}" styledegree="1.15"></mstts:express-as>`;
+    const supported = resolveStyleForVoice(voice, tag.toLowerCase());
+    if (!supported) return "";
+    return `<mstts:express-as style="${supported}" styledegree="1.15"></mstts:express-as>`;
   });
 
   return segContent;
@@ -273,10 +366,12 @@ function textToRichSSML(text, options = {}) {
     style = "natural",
     expressiveness = 0.68,
     isDialogue = false,
-    role = null,
+    role = null, // accepted for backward-compat but intentionally NOT emitted (unsupported on these voices)
     emotionBias = null,
     voiceDirection = null,
+    voice = null,
   } = options;
+  void role;
 
   // Auto emotion detection (new improvement blending research + previous agent ideas)
   const auto = autoDetectEmotion(text);
@@ -345,20 +440,23 @@ function textToRichSSML(text, options = {}) {
 
   const hasDialogue = isDialogue || segments.some((s) => s.isDialogue);
 
-  const expressStyle = pickExpressStyle(style, hasDialogue, expressiveness);
+  const desiredStyle = pickExpressStyle(style, hasDialogue, expressiveness);
+  // Map the desired top-level style to one the CURRENT voice supports (or null).
+  const expressStyle = resolveStyleForVoice(voice, desiredStyle);
 
   // Build inner content (buildSegmentSSML now applies per-segment emotion express-as + dialogue prosody)
   const innerParts = segments.map((seg) =>
-    buildSegmentSSML(seg, { ratePct, pitchStr, volStr, expressiveness, roleHint: role, dialogueHint: isDialogue })
+    buildSegmentSSML(seg, { ratePct, pitchStr, volStr, expressiveness, dialogueHint: isDialogue, voice })
   );
   let inner = innerParts.join(" ");
 
   // Top-level express-as wrapper (only if no strong local emotions already applied in segments,
   // or for global narration color on dramatic/calm styles). Avoids over-wrapping.
+  // expressStyle is already guaranteed voice-supported here (or null => no wrapper), and we
+  // never emit role= (unsupported on these voices, degrades output).
   const hasLocalEmotion = inner.includes('mstts:express-as');
   if (expressStyle && expressiveness > 0.30 && (!hasLocalEmotion || expressiveness > 0.78)) {
-    const roleAttr = role ? ` role="${role}"` : "";
-    inner = `<mstts:express-as style="${expressStyle}" styledegree="${Math.min(1.9, Math.max(0.6, expressiveness * 1.6)).toFixed(1)}"${roleAttr}>${inner}</mstts:express-as>`;
+    inner = `<mstts:express-as style="${expressStyle}" styledegree="${Math.min(1.9, Math.max(0.6, expressiveness * 1.6)).toFixed(1)}">${inner}</mstts:express-as>`;
   }
 
   const lang = "en-US";

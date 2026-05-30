@@ -4,9 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#4f46e5" />
-    <title>Audiobook Maker — Rich Emotional Voices</title>
+    <title>Audiobook Maker — Free Text-to-Speech Audiobooks</title>
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <meta name="description" content="Test dramatically more emotional free Microsoft Edge neural voices with rich SSML. Instant ONE-CLICK emotional demo." />
+    <meta name="description" content="Turn any text, EPUB, or PDF into a natural-sounding MP3 audiobook for free. Dozens of expressive neural voices, no sign-up, runs in your browser." />
     <link rel="manifest" href="/manifest.webmanifest" />
     <style>
       :root {
@@ -23,7 +23,7 @@
         --danger: #ef4444;
       }
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: 100%; background: var(--bg); color: var(--text); background-image: url('/Users/robobootcamp/.grok/sessions/%2FUsers%2Frobobootcamp/019e7403-e659-7b70-bf64-ff78c985d731/images/3.jpg'); background-size: cover; background-attachment: fixed; background-position: center; }
+      html, body { width: 100%; background: var(--bg); color: var(--text); background-image: radial-gradient(900px 500px at 50% -10%, rgba(79,70,229,0.18), transparent 70%), radial-gradient(700px 400px at 100% 0%, rgba(124,58,237,0.14), transparent 60%); background-attachment: fixed; }
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
         line-height: 1.5;
@@ -101,34 +101,17 @@
     </style>
   </head>
   <body>
-    <!-- New premium visual hero for emotional voices demo -->
-    <div style="position: relative; height: 220px; overflow: hidden; margin-bottom: 12px; border-radius: 20px; background: #0b1020;">
-      <img src="/Users/robobootcamp/.grok/sessions/%2FUsers%2Frobobootcamp/019e7403-e659-7b70-bf64-ff78c985d731/images/2.jpg" 
-           alt="Rich Emotional Voices" 
-           style="width: 100%; height: 100%; object-fit: cover; opacity: 0.65; filter: contrast(1.1) saturate(1.1);">
-      <div style="position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(11,16,32,0.3), rgba(11,16,32,0.75));"></div>
-      <div style="position: absolute; bottom: 24px; left: 24px; right: 24px; color: white;">
-        <div style="font-size: 13px; letter-spacing: 1.5px; opacity: 0.8; margin-bottom: 4px;">NEW</div>
-        <h1 style="font-size: 2.1rem; font-weight: 800; line-height: 1.05; margin: 0 0 6px;">Rich Emotional Voices</h1>
-        <p style="margin: 0; font-size: 1rem; opacity: 0.95; max-width: 520px;">
-          Free Microsoft Edge neural voices now sound dramatically more human with advanced SSML.
-        </p>
-      </div>
-    </div>
-
     <main>
       <header style="margin-top: 12px;">
         <div style="display: flex; align-items: center; gap: 12px;">
-          <img src="/Users/robobootcamp/.grok/sessions/%2FUsers%2Frobobootcamp/019e7403-e659-7b70-bf64-ff78c985d731/images/4.jpg" 
-               alt="Audiobook Maker" 
-               style="height: 42px; width: 42px; border-radius: 10px;">
+          <div aria-hidden="true" style="height: 44px; width: 44px; border-radius: 12px; display:flex; align-items:center; justify-content:center; font-size:22px; background: linear-gradient(135deg, #4f46e5, #7c3aed); box-shadow: 0 8px 20px rgba(79,70,229,0.4);">🎧</div>
           <div>
             <h1 style="font-size: 1.55rem; margin: 0;">Audiobook Maker</h1>
-            <p class="sub" style="margin: 0;">Free rich emotional voices • No sign-up • Instant testing</p>
+            <p class="sub" style="margin: 0;">Free · Dozens of natural voices · No sign-up</p>
           </div>
         </div>
         <div style="display: flex; gap: 6px;">
-          <a href="/website/index.html">Launcher</a>
+          <a href="/website/index.html">About</a>
           <a href="https://github.com/cajub311/audiobook-maker" target="_blank" rel="noreferrer">GitHub</a>
         </div>
       </header>
@@ -162,31 +145,30 @@
         <div class="row">
           <div>
             <label for="voice-select">Voice</label>
-            <select id="voice-select"><option>Loading voices...</option></select>
+            <select id="voice-select"><option>Loading voices…</option></select>
             <div class="voice-preview">
-              <button id="btn-preview" class="secondary" type="button" aria-label="Preview selected voice">Preview voice</button>
+              <button id="btn-preview" class="secondary" type="button" aria-label="Preview selected voice">▶ Preview voice</button>
               <button id="btn-stop-preview" class="danger" type="button" aria-label="Stop preview" style="flex: 0 1 auto;">Stop</button>
             </div>
-            <!-- Dedicated one-click test for the new rich emotional SSML (what you actually want to hear) -->
-            <button id="btn-test-emotion" class="primary" type="button" aria-label="ONE-CLICK test rich emotional voices (Auto style + 82% expressiveness on the free Edge path)" style="margin-top: 8px; min-height: 56px; font-size: 1.02rem; background: #16a34a; font-weight: 800; box-shadow: 0 10px 25px rgba(22, 163, 74, 0.4); border: 2px solid #4ade80;">
-  🎭 ONE-CLICK: Test rich emotional voices now (Auto + 82%)
-</button>
-<p class="tip" style="margin-top: 6px; font-size: 0.82rem; color:#86efac; font-weight:600;">Instant demo of the new emotion engine — same voice, dramatically more feeling on whispers, shouts &amp; heartbreak. This is the main thing to test.</p>
-<p class="tip" style="margin-top: 2px; font-size: 0.78rem; color:#4ade80;">First time? This uses Dramatic-style detection + high expressiveness on a dialogue-heavy scene. Perfect for hearing the difference.</p>
-
-            <!-- NEW: Multiple targeted emotion preset quick-tests (directly addresses "get a clip and listen" + rapid A/B of the voice quality fix) -->
-            <div style="margin-top:10px;">
-              <div style="font-size:0.78rem; color:#86efac; margin-bottom:4px; font-weight:600;">Quick emotion test clips (Auto + 85%+ expr — hear specific feelings instantly):</div>
-              <div id="emotion-presets" style="display:flex; flex-wrap:wrap; gap:6px;">
-                <button type="button" data-preset="whisper" class="secondary" style="min-height:34px; font-size:0.82rem; padding:0 10px; flex:1 1 auto; background:#0f172a; border-color:#64748b;">💔 Whisper heartbreak</button>
-                <button type="button" data-preset="rage" class="secondary" style="min-height:34px; font-size:0.82rem; padding:0 10px; flex:1 1 auto; background:#0f172a; border-color:#64748b;">😡 Furious rage</button>
-                <button type="button" data-preset="sudden" class="secondary" style="min-height:34px; font-size:0.82rem; padding:0 10px; flex:1 1 auto; background:#0f172a; border-color:#64748b;">😱 Sudden twist</button>
-                <button type="button" data-preset="sarcastic" class="secondary" style="min-height:34px; font-size:0.82rem; padding:0 10px; flex:1 1 auto; background:#0f172a; border-color:#64748b;">😏 Sarcastic jab</button>
-                <button type="button" data-preset="ecstatic" class="secondary" style="min-height:34px; font-size:0.82rem; padding:0 10px; flex:1 1 auto; background:#0f172a; border-color:#64748b;">🌟 Ecstatic joy</button>
-              </div>
-              <p class="tip" style="margin-top:3px; font-size:0.72rem;">Each loads a perfect micro-scene + forces the richest settings. Different voices react differently — try Ava, Andrew, Guy.</p>
-            </div>
           </div>
+          <div>
+            <label for="style-select">Narration style</label>
+            <select id="style-select">
+              <option value="auto" selected>Auto — match the mood of the text</option>
+              <option value="natural">Natural — balanced and clear</option>
+              <option value="dramatic">Dramatic — expressive storyteller</option>
+              <option value="conversational">Conversational — warm and chatty</option>
+              <option value="gentle">Gentle — soft and tender</option>
+              <option value="intense">Intense — urgent, high tension</option>
+              <option value="sad">Sad — melancholy</option>
+              <option value="excited">Excited — cheerful energy</option>
+              <option value="calm">Calm — relaxed and soothing</option>
+            </select>
+            <p class="tip" style="margin-top:4px;">Adds natural emotion, pacing and pauses automatically.</p>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top: 10px;">
           <div>
             <label for="rate-input">Reading speed</label>
             <input id="rate-input" type="range" min="-40" max="40" step="5" value="0" />
@@ -196,50 +178,40 @@
               <span>Faster</span>
             </div>
           </div>
-        </div>
-
-        <!-- NEW: Narration Style presets — the main lever for emotion and naturalness -->
-        <div class="row" style="margin-top: 8px;">
           <div>
-            <label for="style-select">Narration Style (rich emotion)</label>
-            <select id="style-select">
-              <option value="dramatic" selected>Dramatic (expressive, storybook lift — great for emotional testing)</option>
-              <option value="auto">Auto-detect (best style + emotion boost from text)</option>
-              <option value="natural">Natural (balanced)</option>
-              <option value="conversational">Conversational (chatty, friendly dialogue)</option>
-              <option value="dramatic">Dramatic (expressive, storybook lift)</option>
-              <option value="gentle">Gentle (soft, empathetic, warm)</option>
-              <option value="intense">Intense (urgent, high-stakes tension)</option>
-              <option value="sad">Sad (melancholy, tender heartbreak)</option>
-              <option value="excited">Excited (cheerful, energetic joy)</option>
-              <option value="calm">Calm (relaxed, soothing)</option>
-            </select>
-            <p class="tip" style="margin-top:4px;">Uses advanced SSML express-as + per-sentence prosody + natural pauses + auto emotion detection. Same voice sounds dramatically more human.</p>
-          </div>
-          <div>
-            <label for="expressiveness-input">Expressiveness <span id="expressiveness-display">68%</span></label>
+            <label for="expressiveness-input">Expressiveness <span id="expressiveness-display">78%</span></label>
             <input id="expressiveness-input" type="range" min="20" max="95" step="5" value="78" />
             <div class="range-label"><span>Subtle</span><span>Very emotional</span></div>
           </div>
         </div>
 
-        <!-- Voice Direction: the heart of the powerful AI Director experience -->
-        <div style="margin: 10px 0 2px;">
-          <label for="voice-direction" style="display:block;margin-bottom:3px;font-weight:600;">🧠 Voice Direction — AI Director (free text + [tags] for per-section emotion overrides)</label>
-          <textarea id="voice-direction" rows="2" placeholder="e.g. warm storyteller; [whisper] for secrets &amp; confessions; [intense] on turning points &amp; fights; [gentle] empathy for goodbyes and loss" style="width:100%; min-height:44px; font-size:0.82rem; padding:6px 8px; line-height:1.25;"></textarea>
-          <p class="tip" style="margin:2px 0 0;">The 🧠 button generates rich research-backed suggestions. Parsed into per-chunk overrides in items[] so different sections of your audiobook get different emotional voices. Fully editable &amp; non-destructive. [tags] also work inline in your story text.</p>
-        </div>
+        <button id="btn-test-emotion" class="secondary" type="button" aria-label="Hear a short emotional sample with the current voice and style" style="margin-top: 12px; width:100%;">🎧 Hear an emotional sample</button>
 
-        <!-- Enhance button: high-value one-click auto emotion magic -->
-        <div style="margin: 10px 0 4px;">
-          <button id="btn-enhance" class="secondary" type="button" style="min-height:38px; font-size:0.88rem; padding:0 16px;">✨ Enhance with auto emotion</button>
-          <span class="tip" style="margin-left:10px; vertical-align:middle;">Analyzes text with autoDetectEmotion → picks ideal style + high expressiveness (82%+)</span>
-            <button id="btn-ai-director" class="secondary" type="button" style="margin-left:8px;font-size:0.7rem;padding:2px 5px;">🧠 AI Director suggest</button>
-        </div>
+        <details class="toggle-details" style="margin-top:10px;">
+          <summary>Fine-tune emotion &amp; advanced options</summary>
 
-        <details class="toggle-details">
-          <summary>Advanced narration options</summary>
-          <div class="row" style="margin-top: 8px;">
+          <div style="margin: 10px 0 2px;">
+            <label for="voice-direction" style="display:block;margin-bottom:3px;font-weight:600;">Voice direction (optional)</label>
+            <textarea id="voice-direction" rows="2" placeholder="e.g. warm storyteller; [whisper] for secrets; [intense] on fights; [gentle] for goodbyes" style="width:100%; min-height:44px; font-size:0.82rem; padding:6px 8px; line-height:1.25;"></textarea>
+            <p class="tip" style="margin:2px 0 0;">Plain words or <code>[tags]</code> steer emotion per section. <code>[tags]</code> also work inline in your text.</p>
+            <div style="margin: 8px 0 4px; display:flex; gap:8px; flex-wrap:wrap;">
+              <button id="btn-enhance" class="secondary" type="button" style="min-height:38px; font-size:0.85rem; padding:0 14px;">✨ Auto-enhance emotion</button>
+              <button id="btn-ai-director" class="secondary" type="button" style="min-height:38px; font-size:0.85rem; padding:0 14px;">🧠 AI Director suggestions</button>
+            </div>
+          </div>
+
+          <div style="margin-top:10px;">
+            <div class="tip" style="margin-bottom:4px;">Hear a specific emotion instantly:</div>
+            <div id="emotion-presets" style="display:flex; flex-wrap:wrap; gap:6px;">
+              <button type="button" data-preset="whisper" class="secondary" style="min-height:34px; font-size:0.82rem; padding:0 10px; flex:1 1 auto;">💔 Whisper</button>
+              <button type="button" data-preset="rage" class="secondary" style="min-height:34px; font-size:0.82rem; padding:0 10px; flex:1 1 auto;">😡 Rage</button>
+              <button type="button" data-preset="sudden" class="secondary" style="min-height:34px; font-size:0.82rem; padding:0 10px; flex:1 1 auto;">😱 Twist</button>
+              <button type="button" data-preset="sarcastic" class="secondary" style="min-height:34px; font-size:0.82rem; padding:0 10px; flex:1 1 auto;">😏 Sarcasm</button>
+              <button type="button" data-preset="ecstatic" class="secondary" style="min-height:34px; font-size:0.82rem; padding:0 10px; flex:1 1 auto;">🌟 Joy</button>
+            </div>
+          </div>
+
+          <div class="row" style="margin-top: 14px;">
             <div>
               <label for="pitch-input">Pitch</label>
               <input id="pitch-input" type="range" min="-40" max="40" step="5" value="0" />
@@ -248,7 +220,7 @@
             <div>
               <label for="concurrency-input">Parallel requests</label>
               <input id="concurrency-input" type="number" min="1" max="4" value="2" />
-              <p class="tip">2–3 is much more reliable for real chapters with emotional/multi-voice features. Higher values often hit rate limits or timeouts on Hobby.</p>
+              <p class="tip">2–3 is most reliable for long chapters.</p>
             </div>
             <div>
               <label for="format-select">Audio quality</label>
@@ -259,18 +231,17 @@
             </div>
           </div>
 
-          <!-- Debug checkbox for seeing the rich SSML emotion markup (huge for understanding / tweaking the magic) -->
           <div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--panel-border);">
             <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:0.82rem;margin:0;">
               <input type="checkbox" id="debug-ssml-toggle" style="accent-color:#6366f1;width:16px;height:16px;" />
-              <span>Show generated SSML (debug — reveals rich &lt;mstts:express-as&gt; + role + prosody emotion)</span>
+              <span>Show generated SSML (advanced / debugging)</span>
             </label>
-            <p class="tip" style="margin:4px 0 0 24px;">When enabled, Preview voice will also display (and console.log) the exact SSML sent to Edge neural voices.</p>
           </div>
         </details>
 
         <details class="toggle-details" id="speakers-details">
           <summary style="display:flex;align-items:center;gap:0;">Multi-voice narration&nbsp;<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;margin-left:4px;" onclick="event.stopPropagation()"><input type="checkbox" id="multi-voice-toggle" style="accent-color:#818cf8;width:16px;height:16px;cursor:pointer;"><span id="speakers-count" style="color:#c7d2fe;font-weight:600;">(off)</span></label></summary>
+          <p class="tip" style="margin-top:6px;">Give quoted dialogue a different voice from the narrator.</p>
           <div class="row" style="margin-top: 8px;">
             <div>
               <label for="voice-dialogue-select">Dialogue voice (for quoted lines)</label>
@@ -282,82 +253,67 @@
         </details>
       </section>
 
-      <!-- Premium voices (optional) — supports both direct client (default) and optional server proxy -->
-      <section class="card" id="premium-section">
-        <h2>Premium voices <span style="font-size:0.82rem;font-weight:500;color:#a5b4fc;">(optional — maximum emotion &amp; naturalness)</span></h2>
+      <!-- Premium voices (optional) — collapsed by default to keep the app simple -->
+      <section class="card" id="premium-section" style="padding:0;">
+        <details class="toggle-details" style="padding:16px;">
+          <summary style="font-size:1rem;font-weight:700;color:var(--text);">Premium voices (optional) <span style="font-size:0.8rem;font-weight:500;color:#a5b4fc;">— bring your own ElevenLabs key</span></summary>
 
-        <div style="background:rgba(15,23,42,0.5);border:1px solid var(--panel-border);border-radius:10px;padding:10px 12px;margin-bottom:10px;">
-          <div style="font-size:0.82rem;line-height:1.35;color:#c7d2fe;">
-            <strong>Free (default):</strong> Microsoft Edge neural voices + rich SSML prosody &amp; emotion styles. Zero cost, zero keys, private.<br>
-            <strong>Premium:</strong> ElevenLabs for studio-grade emotional range. <em>Default:</em> direct from browser (key only in localStorage). <em>Optional:</em> server proxy (key stays only on server via env var — no exposure in browser).
-          </div>
-        </div>
+          <p class="tip" style="margin:8px 0 12px;">The free Edge voices need no key and work great. Add an ElevenLabs key only if you want studio-grade premium voices. Everything falls back to free instantly if the key runs out.</p>
 
-        <div class="row" style="margin-bottom:6px;">
-          <div style="min-width:220px;">
-            <label for="eleven-key">ElevenLabs API Key <span style="color:#64748b;font-size:0.7rem;">(sk-… or your key)</span></label>
-            <div style="display:flex;gap:6px;align-items:center;">
-              <input id="eleven-key" type="password" placeholder="Enter your ElevenLabs key" autocomplete="off" style="flex:1;font-family:monospace;font-size:0.82rem;" />
-              <button id="btn-show-key" class="secondary" type="button" style="min-height:38px;padding:0 10px;font-size:0.78rem;">Show</button>
-              <button id="btn-clear-key" class="danger" type="button" style="min-height:38px;padding:0 10px;font-size:0.78rem;">Clear</button>
+          <div class="row" style="margin-bottom:6px;">
+            <div style="min-width:220px;">
+              <label for="eleven-key">ElevenLabs API key</label>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <input id="eleven-key" type="password" placeholder="Enter your ElevenLabs key" autocomplete="off" style="flex:1;font-family:monospace;font-size:0.82rem;" />
+                <button id="btn-show-key" class="secondary" type="button" style="min-height:38px;padding:0 10px;font-size:0.78rem;">Show</button>
+                <button id="btn-clear-key" class="danger" type="button" style="min-height:38px;padding:0 10px;font-size:0.78rem;">Clear</button>
+              </div>
+              <div class="tip" style="margin-top:3px;">Saved only in this browser. <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noreferrer" style="color:#818cf8;">Get a key</a></div>
             </div>
-            <div class="tip" style="margin-top:3px;">Key saved locally only for the direct path. <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noreferrer" style="color:#818cf8;">Get your key</a></div>
+
+            <div>
+              <label for="eleven-model">Model</label>
+              <select id="eleven-model">
+                <option value="eleven_turbo_v2_5" selected>Turbo v2.5 — fast &amp; affordable</option>
+                <option value="eleven_multilingual_v2">Multilingual v2 — highest quality</option>
+                <option value="eleven_flash_v2_5">Flash v2.5 — ultra-fast</option>
+              </select>
+            </div>
           </div>
 
-          <div>
-            <label for="eleven-model">Model</label>
-            <select id="eleven-model">
-              <option value="eleven_turbo_v2_5" selected>Turbo v2.5 — fast, affordable (recommended for full books)</option>
-              <option value="eleven_multilingual_v2">Multilingual v2 — highest quality &amp; emotion depth</option>
-              <option value="eleven_flash_v2_5">Flash v2.5 — ultra-fast generation</option>
-            </select>
-            <div class="tip" style="margin-top:3px;">Turbo is excellent balance for long-form audiobooks.</div>
+          <div style="margin: 8px 0 4px;">
+            <label>ElevenLabs voice</label>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <select id="eleven-voice-select" style="flex:1;min-width:220px;">
+                <option value="21m00Tcm4TlvDq8ikWAM">Rachel — US Female (versatile)</option>
+                <option value="pNInz6obpgDQGcFmaJgB">Adam — US Male (deep narrator)</option>
+                <option value="ErXwobaYiN019PkySvjV">Antoni — US Male (warm)</option>
+                <option value="AZnzlk1XvdvUeBnXmlld">Layla — British Female (expressive)</option>
+                <option value="MF3mGyEYCl7XYWbV9V6O">Elli — US Female (soft, youthful)</option>
+                <option value="TxGEqnHWrfWFTfGW9XjX">Josh — US Male (energetic)</option>
+                <option value="custom">— Custom voice ID (paste below) —</option>
+              </select>
+              <button id="btn-load-eleven-voices" class="secondary" type="button" style="min-height:38px;padding:0 12px;font-size:0.78rem;white-space:nowrap;">Load my voices</button>
+            </div>
+            <input id="eleven-voice-custom" type="text" placeholder="Or paste a custom voice_id" style="margin-top:6px;width:100%;font-size:0.82rem;font-family:monospace;" />
           </div>
-        </div>
 
-        <div style="margin: 8px 0 4px;">
-          <label>ElevenLabs Voice</label>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <select id="eleven-voice-select" style="flex:1;min-width:220px;">
-              <option value="21m00Tcm4TlvDq8ikWAM">Rachel — US Female (versatile, highly emotional)</option>
-              <option value="pNInz6obpgDQGcFmaJgB">Adam — US Male (deep, authoritative narrator)</option>
-              <option value="ErXwobaYiN019PkySvjV">Antoni — US Male (warm, engaging)</option>
-              <option value="AZnzlk1XvdvUeBnXmlld">Layla — British Female (clear &amp; expressive)</option>
-              <option value="MF3mGyEYCl7XYWbV9V6O">Elli — US Female (soft, youthful)</option>
-              <option value="TxGEqnHWrfWFTfGW9XjX">Josh — US Male (energetic)</option>
-              <option value="custom">— Custom voice ID (paste below) —</option>
-            </select>
-            <button id="btn-load-eleven-voices" class="secondary" type="button" style="min-height:38px;padding:0 12px;font-size:0.78rem;white-space:nowrap;">Load my voices</button>
+          <div style="margin-top:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;margin:0;font-weight:600;">
+              <input type="checkbox" id="use-premium-toggle" style="accent-color:#6366f1;width:18px;height:18px;" />
+              <span>Use premium voices for this audiobook</span>
+            </label>
+            <span id="premium-status" style="font-size:0.78rem;color:#64748b;"></span>
           </div>
-          <input id="eleven-voice-custom" type="text" placeholder="Or paste custom voice_id (e.g. your cloned voice hash)" style="margin-top:6px;width:100%;font-size:0.82rem;font-family:monospace;" />
-          <div class="tip">For direct client path: Load requires key. For server-proxy mode: loads account voices tied to the server key (or use presets / paste ID).</div>
-        </div>
 
-        <div style="margin-top:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-          <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;margin:0;font-weight:600;">
-            <input type="checkbox" id="use-premium-toggle" style="accent-color:#6366f1;width:18px;height:18px;" />
-            <span>Use premium (ElevenLabs) for this generation</span>
-          </label>
-          <span id="premium-status" style="font-size:0.78rem;color:#64748b;"></span>
-        </div>
-
-        <!-- NEW: Optional server proxy (off by default, clearly documented) -->
-        <div style="margin-top:6px;">
-          <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;margin:0;font-size:0.82rem;font-weight:500;color:#94a3b8;">
-            <input type="checkbox" id="use-eleven-proxy" style="accent-color:#6366f1;width:16px;height:16px;" />
-            <span>Use secure server proxy (key never leaves server — requires ELEVENLABS_API_KEY on host; off by default; falls back to client path)</span>
-          </label>
-          <div class="tip" style="margin-left:24px;margin-top:2px;">Ideal for self-hosted deployments wanting zero keys in browser localStorage. The direct client path remains the excellent default for most users.</div>
-        </div>
-
-        <details class="toggle-details" style="margin-top:8px;">
-          <summary style="font-size:0.78rem;color:#64748b;">Cost &amp; quota notes (important)</summary>
-          <div style="font-size:0.78rem;color:#94a3b8;margin-top:4px;line-height:1.4;">
-            • ElevenLabs bills by character (Turbo ~$0.5–1 per 100k chars on paid plans; free tier has monthly quota).<br>
-            • A typical novel chapter (~8–15k chars) is usually a few cents. Always check your current quota &amp; pricing at <a href="https://elevenlabs.io/pricing" target="_blank" rel="noreferrer" style="color:#818cf8;">elevenlabs.io/pricing</a>.<br>
-            • If quota exhausted you will see an auth/quota error — just uncheck the toggle to fall back to free instantly.<br>
-            • OpenAI TTS is an easy alternative fallback (similar client-side fetch with sk- key) if you prefer their voices.
+          <div style="margin-top:6px;">
+            <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;margin:0;font-size:0.82rem;font-weight:500;color:#94a3b8;">
+              <input type="checkbox" id="use-eleven-proxy" style="accent-color:#6366f1;width:16px;height:16px;" />
+              <span>Use secure server proxy (key stays on the server — for self-hosting)</span>
+            </label>
           </div>
+
+          <p class="tip" style="margin-top:8px;">ElevenLabs bills per character and the free tier has a monthly quota. See <a href="https://elevenlabs.io/pricing" target="_blank" rel="noreferrer" style="color:#818cf8;">pricing</a>. If quota runs out, just untick the box to return to the free voices.</p>
         </details>
       </section>
 
@@ -384,38 +340,38 @@
           <a id="download-link" class="primary" style="min-height:52px;display:flex;align-items:center;justify-content:center;text-decoration:none;" download="audiobook.mp3">Download MP3</a>
           <button id="btn-share" class="secondary" type="button">Share / Copy link</button>
         </div>
-        <p class="tip">MP3 frames from each chunk are concatenated. Any audio player will handle this as one file.</p>
+        <p class="tip">Each chunk is stitched into one MP3 that any player can open.</p>
 
-        <!-- Lightweight emotional feedback (client-only, for rapid iteration on the rich SSML) -->
+        <!-- Optional quick rating -->
         <div id="emotion-feedback" style="margin-top:12px; padding-top:10px; border-top:1px solid var(--panel-border);">
-          <div style="font-size:0.85rem; color:var(--muted); margin-bottom:4px;">How emotional did this clip feel?</div>
+          <div style="font-size:0.85rem; color:var(--muted); margin-bottom:4px;">How did this sound?</div>
           <div style="display:flex; gap:6px; flex-wrap:wrap;">
             <button type="button" class="secondary" data-feedback="flat" style="padding:4px 10px; font-size:0.8rem;">😶 Flat</button>
             <button type="button" class="secondary" data-feedback="some" style="padding:4px 10px; font-size:0.8rem;">🙂 Some life</button>
             <button type="button" class="secondary" data-feedback="very" style="padding:4px 10px; font-size:0.8rem;">🔥 Very emotional</button>
             <button type="button" class="secondary" data-feedback="wow" style="padding:4px 10px; font-size:0.8rem;">🤯 Characters alive!</button>
           </div>
-          <div id="feedback-thanks" style="display:none; margin-top:6px; font-size:0.8rem; color:#86efac;">Thanks! Feedback saved locally for the team.</div>
+          <div id="feedback-thanks" style="display:none; margin-top:6px; font-size:0.8rem; color:#86efac;">Thanks for the feedback!</div>
         </div>
       </section>
 
-      <!-- Debug SSML viewer (populated live when the checkbox is on + preview is used) -->
+      <!-- Debug SSML viewer (shown only when the advanced toggle is on) -->
       <section id="ssml-debug-panel" class="card" hidden>
-        <h2>Generated rich SSML (debug view)</h2>
+        <h2>Generated SSML</h2>
         <textarea id="ssml-output" readonly spellcheck="false" style="width:100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.72rem; line-height:1.35; min-height: 138px; background:#0f172a; color:#cbd5e1; border-color:#475569; padding:10px; border-radius:10px;"></textarea>
-        <p class="tip" style="margin-top:6px;">Exact SSML produced by the improved ssml-builder (with autoDetectEmotion, per-segment express-as, dialogue role=YoungAdultFemale, prosody, breaks, emphasis). Use for learning/tweaking the emotion magic.</p>
+        <p class="tip" style="margin-top:6px;">The exact SSML (emotion styles, prosody, pauses) sent to the neural voice — handy for tweaking.</p>
       </section>
 
-      <section class="card">
-        <h2>Tips</h2>
-        <ul style="padding-left: 20px; font-size: 0.9rem; color: var(--muted);">
-          <li><strong>Free (default):</strong> Entirely in-browser via Microsoft Edge neural voices + rich SSML for emotion. No keys, no cost.</li>
-          <li><strong>Premium (toggle above):</strong> ElevenLabs — direct client (default, key in localStorage only) or optional secure server proxy (no key in browser when enabled on host via env var). Both fall back instantly to free Edge.</li>
-          <li>Long chapters are auto-split on paragraph &amp; sentence boundaries for cleaner pacing. Same multi-chunk parallel flow for both paths.</li>
-          <li>If generation is slow, lower the parallel request count or the input size.</li>
-          <li><strong>Powerful AI Director:</strong> Use 🧠 + Voice Direction field for per-section emotional control via parsed [tags]/keywords applied as overrides in the audiobook items pipeline.</li>
+      <details class="card toggle-details">
+        <summary style="font-size:1rem;font-weight:700;color:var(--text);">Tips &amp; how it works</summary>
+        <ul style="padding-left: 20px; font-size: 0.9rem; color: var(--muted); margin-top:8px;">
+          <li><strong>Free by default:</strong> runs in your browser on Microsoft Edge neural voices — no keys, no cost, nothing leaves your device except the text being read.</li>
+          <li><strong>Emotion:</strong> pick a narration style (or Auto) and the app adds natural feeling, pacing and pauses for you.</li>
+          <li><strong>Long books:</strong> text is auto-split into chunks and rendered in parallel, then stitched into one MP3.</li>
+          <li><strong>Multi-voice:</strong> turn it on to give quoted dialogue a different voice from the narrator.</li>
+          <li><strong>Premium (optional):</strong> add an ElevenLabs key for studio voices — it falls back to free instantly if the quota runs out.</li>
         </ul>
-      </section>
+      </details>
     </main>
 
     <script type="module">
